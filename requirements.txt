@@ -1,0 +1,21 @@
+# Web Scraping Module Dependencies
+
+# Core scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# JavaScript rendering (optional, for JS-heavy sites)
+playwright>=1.40.0
+
+# CLI interface
+click>=8.1.0
+
+# Data handling
+python-dateutil>=2.8.0
+
+# Optional enhancements
+pyperclip>=1.8.0  # Clipboard support for CLI
+# trafilatura>=1.6.0  # Alternative clean text extraction
+# newspaper3k>=0.2.8  # News article extraction
+# readability-lxml>=0.8.1  # Mozilla readability algorithm

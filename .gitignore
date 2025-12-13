@@ -1,0 +1,76 @@
+# Local setup files (contain user paths)
+SETUP_GITHUB.bat
+SETUP.ps1
+START_HERE.txt
+.claude/
+
+# Virtual Environment
+venv/
+env/
+.venv/
+.env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Playwright browsers (large, users install themselves)
+.playwright/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Scraped output (user data)
+scraped/
+output/
+*.scraped.json
+*.scraped.md
+
+# Config with potential secrets
+.scraper_config.json
+config.local.json
+.env
+.env.local
+*.pem
+*.key
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Jupyter
+.ipynb_checkpoints/
