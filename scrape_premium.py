@@ -10,8 +10,10 @@ import json
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
-from smart_scraper import scrape_article, extract_article_for_llm, scrape_with_extraction
+from smart_scraper import scrape_article, extract_article_for_llm, scrape_with_extraction, scrape_from_sitemap, get_sitemap_urls
 from web_scraper import quick_scrape
+from sitemap_registry import SitemapRegistry
+from url_discovery import URLDiscovery
 import re
 
 
@@ -133,11 +135,14 @@ def main():
     click.echo("  2. Scrape multiple URLs from a file")
     click.echo("  3. Extract specific data (emails, phones, etc.)")
     click.echo("  4. Quick scrape (just text, fastest)")
-    click.echo("  5. Settings")
-    click.echo("  6. Exit")
-    
+    click.echo("  5. Sitemap scraping (get URLs from sitemaps)")
+    click.echo("  6. Sitemap registry (manage sitemaps)")
+    click.echo("  7. URL Discovery (discover links from sources)")
+    click.echo("  8. Settings")
+    click.echo("  9. Exit")
+
     choice = click.prompt("\nYour choice", type=int, default=1)
-    
+
     if choice == 1:
         scrape_single(config)
     elif choice == 2:
@@ -147,8 +152,14 @@ def main():
     elif choice == 4:
         quick_mode(config)
     elif choice == 5:
-        settings_menu(config)
+        sitemap_scrape_menu(config)
     elif choice == 6:
+        sitemap_registry_menu(config)
+    elif choice == 7:
+        url_discovery_menu(config)
+    elif choice == 8:
+        settings_menu(config)
+    elif choice == 9:
         click.echo("\n👋 Goodbye!\n")
         sys.exit(0)
     else:
@@ -379,21 +390,427 @@ def quick_mode(config):
     click.echo()
 
 
+def sitemap_scrape_menu(config):
+    """Scrape URLs from a sitemap"""
+    header("SITEMAP SCRAPING")
+
+    domain = click.prompt("Enter domain (e.g., example.com)").strip()
+
+    # Remove http/https if present
+    if domain.startswith('http'):
+        from urllib.parse import urlparse
+        domain = urlparse(domain).netloc
+
+    # Ask how many URLs to scrape
+    click.echo("\nHow many URLs do you want to scrape?")
+    limit = click.prompt("Number of URLs", type=int, default=10)
+
+    # Ask if only unscraped
+    only_new = click.confirm("Only scrape new (previously unscraped) URLs?", default=True)
+
+    # Output directory
+    output_dir = click.prompt(
+        "\nSave to folder",
+        default=config['default_output_dir']
+    )
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Scrape
+    click.echo()
+    with click.progressbar(length=100, label='Fetching sitemap') as bar:
+        bar.update(50)
+
+        registry = SitemapRegistry()
+        if not registry.has_sitemap(domain):
+            click.echo("\n")
+            info(f"Fetching sitemap for {domain}...")
+            success_add = registry.add_domain(domain)
+            if not success_add:
+                click.echo(click.style("\n✗ Failed to fetch sitemap", fg='red'))
+                click.echo()
+                return
+
+        bar.update(50)
+
+    # Get URLs
+    urls = registry.get_urls(domain, limit=limit, unscraped_only=only_new)
+
+    if not urls:
+        click.echo(click.style("\n✗ No URLs found", fg='red'))
+        click.echo()
+        return
+
+    click.echo(f"\n✓ Found {len(urls)} URLs to scrape\n")
+
+    # Show preview
+    click.echo("URLs to scrape:")
+    for i, url in enumerate(urls[:5]):
+        click.echo(f"  {i+1}. {url}")
+    if len(urls) > 5:
+        click.echo(f"  ... and {len(urls) - 5} more")
+
+    click.echo()
+    if not click.confirm("Proceed with scraping?", default=True):
+        click.echo()
+        return
+
+    # Scrape each URL
+    click.echo()
+    success_count = 0
+
+    with click.progressbar(urls, label='Scraping URLs') as url_list:
+        for i, url in enumerate(url_list):
+            try:
+                content = scrape_article(url)
+                if content:
+                    filename = f"{i+1:03d}_{clean_filename(url)}.md"
+                    filepath = output_path / filename
+                    filepath.write_text(content, encoding='utf-8')
+                    success_count += 1
+
+                    # Mark as scraped
+                    registry.mark_scraped(url)
+            except:
+                pass
+
+    click.echo()
+    success(f"Scraped {success_count}/{len(urls)} URLs to {output_dir}")
+
+    # Show stats
+    sitemap_info = registry.get_sitemap_info(domain)
+    if sitemap_info:
+        click.echo()
+        click.echo(f"Progress for {domain}:")
+        scraped = sitemap_info.url_count - len(registry.get_urls(domain, unscraped_only=True))
+        click.echo(f"  Total URLs in sitemap: {sitemap_info.url_count}")
+        click.echo(f"  Scraped: {scraped}")
+        click.echo(f"  Remaining: {sitemap_info.url_count - scraped}")
+
+    click.echo()
+
+
+def sitemap_registry_menu(config):
+    """Manage sitemap registry"""
+    header("SITEMAP REGISTRY")
+
+    registry = SitemapRegistry()
+    stats = registry.get_stats()
+
+    # Show current stats
+    click.echo("Registry stats:\n")
+    click.echo(f"  Total sitemaps: {stats['total_sitemaps']}")
+    click.echo(f"  Total URLs: {stats['total_urls']}")
+    click.echo(f"  Scraped: {stats['scraped_urls']}")
+    click.echo(f"  Unscraped: {stats['unscraped_urls']}")
+    click.echo(f"  Database: {stats['database_path']}")
+
+    click.echo("\nWhat would you like to do?\n")
+    click.echo("  1. Add a new domain")
+    click.echo("  2. View domain details")
+    click.echo("  3. List all domains")
+    click.echo("  4. Refresh a domain's sitemap")
+    click.echo("  5. View URLs from a domain")
+    click.echo("  6. Back to main menu")
+
+    choice = click.prompt("\nYour choice", type=int, default=6)
+
+    if choice == 1:
+        # Add domain
+        domain = click.prompt("\nEnter domain").strip()
+        click.echo()
+
+        with click.progressbar(length=100, label='Fetching sitemap') as bar:
+            bar.update(30)
+            success_add = registry.add_domain(domain)
+            bar.update(70)
+
+        click.echo()
+        if success_add:
+            info_obj = registry.get_sitemap_info(domain)
+            success(f"Added {domain}")
+            click.echo(f"  Found {info_obj.url_count} URLs")
+        else:
+            click.echo(click.style("✗ Failed to add domain", fg='red'))
+
+        click.echo()
+
+    elif choice == 2:
+        # View domain details
+        domain = click.prompt("\nEnter domain").strip()
+        info_obj = registry.get_sitemap_info(domain)
+
+        click.echo()
+        if info_obj:
+            click.echo(click.style(f"Details for {domain}:", fg='cyan', bold=True))
+            click.echo(f"\n  Sitemap URL: {info_obj.sitemap_url}")
+            click.echo(f"  Status: {info_obj.status}")
+            click.echo(f"  Total URLs: {info_obj.url_count}")
+            click.echo(f"  Last fetched: {info_obj.last_fetched}")
+
+            # Calculate scraped vs unscraped
+            unscraped = len(registry.get_urls(domain, unscraped_only=True))
+            scraped = info_obj.url_count - unscraped
+            click.echo(f"  Scraped: {scraped}")
+            click.echo(f"  Unscraped: {unscraped}")
+
+            if info_obj.error_message:
+                click.echo(click.style(f"  Error: {info_obj.error_message}", fg='red'))
+        else:
+            click.echo(click.style("✗ Domain not found in registry", fg='red'))
+
+        click.echo()
+
+    elif choice == 3:
+        # List all domains
+        domains = registry.list_domains()
+
+        click.echo()
+        if domains:
+            click.echo(f"Registered domains ({len(domains)}):\n")
+            for domain in domains:
+                info_obj = registry.get_sitemap_info(domain)
+                status_color = 'green' if info_obj.status == 'success' else 'red'
+                click.echo(f"  • {click.style(domain, fg=status_color)} ({info_obj.url_count} URLs)")
+        else:
+            click.echo(click.style("No domains in registry", fg='yellow'))
+
+        click.echo()
+
+    elif choice == 4:
+        # Refresh domain
+        domain = click.prompt("\nEnter domain to refresh").strip()
+        click.echo()
+
+        with click.progressbar(length=100, label='Refreshing sitemap') as bar:
+            bar.update(30)
+            success_refresh = registry.refresh_domain(domain)
+            bar.update(70)
+
+        click.echo()
+        if success_refresh:
+            success(f"Refreshed {domain}")
+        else:
+            click.echo(click.style("✗ Failed to refresh domain", fg='red'))
+
+        click.echo()
+
+    elif choice == 5:
+        # View URLs from domain
+        domain = click.prompt("\nEnter domain").strip()
+        limit = click.prompt("How many URLs to show?", type=int, default=20)
+
+        urls = registry.get_urls(domain, limit=limit)
+
+        click.echo()
+        if urls:
+            click.echo(f"URLs from {domain} (showing {len(urls)}):\n")
+            for i, url in enumerate(urls):
+                click.echo(f"  {i+1}. {url}")
+        else:
+            click.echo(click.style("No URLs found", fg='yellow'))
+
+        click.echo()
+
+    if choice != 6:
+        if click.confirm("Return to sitemap registry menu?", default=True):
+            sitemap_registry_menu(config)
+
+
+def url_discovery_menu(config):
+    """URL Discovery management"""
+    header("URL DISCOVERY")
+
+    discovery = URLDiscovery()
+    stats = discovery.get_stats()
+
+    # Show current stats
+    click.echo("URL Discovery stats:\n")
+    click.echo(f"  Total sources: {stats['total_sources']}")
+    click.echo(f"  Discovered URLs: {stats['total_discovered']}")
+    if stats['last_discovery']:
+        click.echo(f"  Last discovery: {stats['last_discovery']}")
+
+    click.echo("\nWhat would you like to do?\n")
+    click.echo("  1. Add source URL")
+    click.echo("  2. Remove source URL")
+    click.echo("  3. List sources")
+    click.echo("  4. Discover URLs from source(s)")
+    click.echo("  5. Search discovered URLs")
+    click.echo("  6. View discovery stats")
+    click.echo("  7. Clear all discovered URLs")
+    click.echo("  0. Back to main menu")
+
+    choice = click.prompt("\nYour choice", type=int, default=0)
+
+    if choice == 1:
+        # Add source URL
+        url = click.prompt("\nEnter source URL").strip()
+
+        click.echo()
+        if discovery.add_source(url):
+            success(f"Added source: {url}")
+        else:
+            click.echo(click.style("✗ Source already exists", fg='yellow'))
+
+        click.echo()
+
+    elif choice == 2:
+        # Remove source URL
+        sources = discovery.get_sources()
+
+        if not sources:
+            click.echo()
+            click.echo(click.style("No sources to remove", fg='yellow'))
+            click.echo()
+        else:
+            click.echo("\nCurrent sources:\n")
+            for i, source in enumerate(sources, 1):
+                click.echo(f"  {i}. {source}")
+
+            url = click.prompt("\nEnter source URL to remove").strip()
+
+            click.echo()
+            if discovery.remove_source(url):
+                success(f"Removed source: {url}")
+            else:
+                click.echo(click.style("✗ Source not found", fg='red'))
+
+            click.echo()
+
+    elif choice == 3:
+        # List sources
+        sources = discovery.get_sources()
+
+        click.echo()
+        if sources:
+            click.echo(f"Configured sources ({len(sources)}):\n")
+            for i, source in enumerate(sources, 1):
+                click.echo(f"  {i}. {source}")
+        else:
+            click.echo(click.style("No sources configured", fg='yellow'))
+
+        click.echo()
+
+    elif choice == 4:
+        # Discover URLs
+        sources = discovery.get_sources()
+
+        if not sources:
+            click.echo()
+            click.echo(click.style("No sources configured. Add a source first.", fg='yellow'))
+            click.echo()
+        else:
+            # Ask which source (or all)
+            click.echo("\nDiscover from:\n")
+            click.echo("  0. All sources")
+            for i, source in enumerate(sources, 1):
+                click.echo(f"  {i}. {source}")
+
+            source_choice = click.prompt("\nYour choice", type=int, default=0)
+
+            selected_source = None
+            if source_choice > 0 and source_choice <= len(sources):
+                selected_source = sources[source_choice - 1]
+
+            # Discover
+            click.echo()
+            with click.progressbar(length=100, label='Discovering URLs') as bar:
+                bar.update(20)
+                discovered_count, junk_count = discovery.discover(selected_source, verbose=False)
+                bar.update(80)
+
+            click.echo()
+            if discovered_count > 0:
+                success(f"Discovered {discovered_count} new URLs")
+                if junk_count > 0:
+                    info(f"Filtered {junk_count} junk URLs")
+            else:
+                click.echo(click.style("No new URLs discovered", fg='yellow'))
+
+            click.echo()
+
+    elif choice == 5:
+        # Search discovered URLs
+        query = click.prompt("\nSearch query").strip()
+
+        matches = discovery.search(query)
+
+        click.echo()
+        if matches:
+            click.echo(f"Found {len(matches)} matching URLs:\n")
+            for i, url in enumerate(matches[:20], 1):
+                click.echo(f"  {i}. {url}")
+
+            if len(matches) > 20:
+                click.echo(click.style(f"\n  ... and {len(matches) - 20} more", fg='yellow', dim=True))
+
+            # Ask if they want to save results
+            click.echo()
+            if click.confirm("Save search results to file?", default=False):
+                output_dir = Path(config['default_output_dir'])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_file = output_dir / f"search_{query.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                output_file.write_text('\n'.join(matches), encoding='utf-8')
+                success(f"Saved to: {output_file}")
+        else:
+            click.echo(click.style("No matching URLs found", fg='yellow'))
+
+        click.echo()
+
+    elif choice == 6:
+        # View stats
+        click.echo()
+        click.echo(click.style("URL Discovery Statistics:", fg='cyan', bold=True))
+        click.echo()
+        click.echo(f"  Total sources: {stats['total_sources']}")
+        click.echo(f"  Total discovered URLs: {stats['total_discovered']}")
+        if stats['last_discovery']:
+            click.echo(f"  Last discovery: {stats['last_discovery']}")
+        else:
+            click.echo(f"  Last discovery: Never")
+
+        # Show breakdown by source
+        sources = discovery.get_sources()
+        if sources:
+            click.echo(f"\n  Sources:")
+            for source in sources:
+                click.echo(f"    • {source}")
+
+        click.echo()
+
+    elif choice == 7:
+        # Clear all discovered URLs
+        click.echo()
+        if click.confirm("Are you sure you want to clear all discovered URLs?", default=False):
+            count = discovery.clear_discovered()
+            success(f"Cleared {count} discovered URLs")
+        else:
+            click.echo("Cancelled")
+
+        click.echo()
+
+    if choice != 0:
+        if click.confirm("Return to URL discovery menu?", default=True):
+            url_discovery_menu(config)
+
+
 def settings_menu(config):
     """Settings configuration"""
     header("SETTINGS")
-    
+
     click.echo(f"Current settings:\n")
     click.echo(f"  Default save folder: {config['default_output_dir']}")
     click.echo(f"  Auto-save: {config['auto_save']}")
     click.echo(f"  Default format: {config['default_format']}")
-    
+
     click.echo("\n1. Change default save folder")
     click.echo("2. Reset to defaults")
     click.echo("3. Back to main menu")
-    
+
     choice = click.prompt("\nYour choice", type=int, default=3)
-    
+
     if choice == 1:
         new_dir = click.prompt("New default folder", default=config['default_output_dir'])
         config['default_output_dir'] = new_dir
@@ -408,7 +825,7 @@ def settings_menu(config):
         }
         save_config(config)
         success("Reset to defaults")
-    
+
     click.echo()
     main()
 
