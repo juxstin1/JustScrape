@@ -1,12 +1,14 @@
 """
 Smart Web Scraper - Unified interface that auto-detects best scraping method
 Combines static and JavaScript scrapers with intelligent fallback
+Integrates with sitemap registry for efficient URL discovery
 """
 
 from typing import Optional, List, Dict, Union
 from dataclasses import dataclass
 from web_scraper import WebScraper, ContentType, ScrapedContent, quick_scrape
 from js_scraper import JavaScriptScraper, ScraperConfig
+from sitemap_registry import SitemapRegistry
 import re
 
 
@@ -310,23 +312,115 @@ def compare_scraping_methods(url: str) -> Dict:
     return results
 
 
+def scrape_from_sitemap(
+    domain: str,
+    limit: int = 10,
+    unscraped_only: bool = True,
+    auto_add: bool = True
+) -> List[Dict]:
+    """
+    Scrape multiple URLs from a domain's sitemap
+
+    Args:
+        domain: Domain to scrape from (e.g., "example.com")
+        limit: Maximum number of URLs to scrape
+        unscraped_only: Only scrape URLs not previously scraped
+        auto_add: Automatically add domain to registry if not found
+
+    Returns:
+        List of dictionaries with scraped content
+    """
+    registry = SitemapRegistry()
+
+    # Check if domain has sitemap
+    if not registry.has_sitemap(domain):
+        if auto_add:
+            print(f"Domain {domain} not in registry, fetching sitemap...")
+            success = registry.add_domain(domain)
+            if not success:
+                print(f"Failed to fetch sitemap for {domain}")
+                return []
+        else:
+            print(f"Domain {domain} not in registry")
+            return []
+
+    # Check if sitemap is stale
+    if registry.is_stale(domain):
+        print(f"Sitemap for {domain} is stale, refreshing...")
+        registry.refresh_domain(domain)
+
+    # Get URLs to scrape
+    urls = registry.get_urls(domain, limit=limit, unscraped_only=unscraped_only)
+
+    if not urls:
+        print(f"No URLs found for {domain}")
+        return []
+
+    print(f"Scraping {len(urls)} URLs from {domain}...")
+
+    # Scrape each URL
+    scraper = SmartScraper()
+    results = []
+
+    for i, url in enumerate(urls):
+        print(f"  [{i+1}/{len(urls)}] {url}")
+
+        try:
+            result = scraper.scrape_to_dict(url)
+            results.append(result)
+
+            # Mark as scraped in registry
+            registry.mark_scraped(url)
+
+        except Exception as e:
+            print(f"    ✗ Error: {e}")
+
+    print(f"\n✓ Scraped {len(results)}/{len(urls)} URLs")
+    return results
+
+
+def get_sitemap_urls(domain: str, limit: int = 100) -> List[str]:
+    """
+    Get URLs from a domain's sitemap without scraping
+
+    Args:
+        domain: Domain to get URLs from
+        limit: Maximum URLs to return
+
+    Returns:
+        List of URLs
+    """
+    registry = SitemapRegistry()
+
+    if not registry.has_sitemap(domain):
+        print(f"Fetching sitemap for {domain}...")
+        registry.add_domain(domain)
+
+    return registry.get_urls(domain, limit=limit)
+
+
 if __name__ == '__main__':
     # Example usage
     url = "https://example.com"
-    
+
     print("=== Smart Scraper Examples ===\n")
-    
+
     # Simple article scraping
     print("1. Scraping article...")
     content = scrape_article(url)
     print(f"Content length: {len(content)} chars\n")
-    
+
     # Extract specific data
     print("2. Extracting emails...")
     emails = scrape_with_extraction(url, 'emails')
     print(f"Found {len(emails)} emails\n")
-    
+
     # Compare methods
     print("3. Comparing scraping methods...")
     comparison = compare_scraping_methods(url)
     print(f"Recommendation: {comparison['recommendation']}\n")
+
+    # Sitemap-based scraping
+    print("4. Scraping from sitemap...")
+    results = scrape_from_sitemap("example.com", limit=5)
+    print(f"Scraped {len(results)} articles from sitemap\n")
