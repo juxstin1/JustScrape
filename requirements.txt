@@ -1,4 +1,4 @@
-# Web Scraping Module Dependencies
+# JustScrape - Web Scraping & Search MCP Server
 
 # Core scraping
 requests>=2.31.0
@@ -7,6 +7,12 @@ lxml>=4.9.0
 
 # JavaScript rendering (optional, for JS-heavy sites)
 playwright>=1.40.0
+
+# MCP Server (Model Context Protocol)
+mcp>=1.0.0
+
+# Web search
+duckduckgo-search>=6.0.0
 
 # CLI interface
 click>=8.1.0

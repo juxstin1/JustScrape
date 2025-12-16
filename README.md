@@ -1,28 +1,115 @@
 # JustScrape
 
-Layered intelligence web scraper that automatically handles static vs. dynamic content while delivering clean, LLM-ready output without manual tweaks.
+Layered intelligence web scraper + **MCP Server** that provides free web search and scraping capabilities to AI models.
 
 ## Features
 
-- **Smart Routing** - Domain-based JS detection (Twitter/X, Instagram, Reddit, etc.) plus content-length fallback prevents failures on SPAs
+- **MCP Server** - Expose web search and scraping as tools for Claude, LM Studio, or any MCP-compatible client
+- **Free Web Search** - DuckDuckGo-based SERP search, no API keys required
+- **Smart Routing** - Domain-based JS detection (Twitter/X, Instagram, Reddit, etc.) plus content-length fallback
 - **Auto-Fallback** - If static scraping returns minimal content, automatically switches to browser rendering
 - **Clean Extraction** - Strips ads, trackers, navigation, and bloat to extract actual content
 - **LLM-Ready Output** - Markdown and plain text formats optimized for AI consumption
 - **Interactive CLI** - Menu-driven interface with batch scraping, data extraction, and clipboard support
 
+## MCP Server (For AI Models)
+
+JustScrape can run as an MCP (Model Context Protocol) server, exposing tools that AI models can use directly.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `web_search` | Free SERP-style search via DuckDuckGo |
+| `scrape_url` | Clean content extraction from any URL |
+| `search_and_scrape` | Search + fetch top results in one call |
+| `extract_urls` | Extract all links from a webpage |
+
+### Setup with Claude Desktop
+
+Add to your Claude Desktop config (`~/.config/claude/claude_desktop_config.json` on Linux/Mac or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "justscrape": {
+      "command": "python",
+      "args": ["/path/to/JustScrape/justscrape_mcp.py"]
+    }
+  }
+}
+```
+
+### Setup with Other MCP Clients
+
+Run the server directly:
+
+```bash
+python justscrape_mcp.py
+```
+
+The server communicates via stdio using the MCP protocol.
+
+### Example: Web Search Tool
+
+```json
+{
+  "name": "web_search",
+  "arguments": {
+    "query": "python web scraping tutorial",
+    "num_results": 5
+  }
+}
+```
+
+Returns:
+```json
+{
+  "query": "python web scraping tutorial",
+  "results": [
+    {
+      "position": 1,
+      "title": "Web Scraping with Python - Real Python",
+      "url": "https://realpython.com/...",
+      "snippet": "Learn how to scrape websites..."
+    }
+  ],
+  "total_results": 5,
+  "success": true
+}
+```
+
 ## Architecture
 
 ```
-scrape_premium.py  →  smart_scraper.py  →  web_scraper.py / js_scraper.py
-   (CLI interface)      (intelligence)       (scraping engines)
+┌─────────────────────┐     ┌──────────────────────┐
+│  justscrape_mcp.py  │     │  scrape_premium.py   │
+│   (MCP Server)      │     │    (CLI interface)   │
+└─────────┬───────────┘     └──────────┬───────────┘
+          │                            │
+          └────────────┬───────────────┘
+                       ▼
+              ┌────────────────────┐
+              │  smart_scraper.py  │
+              │  (intelligence)    │
+              └────────┬───────────┘
+                       │
+         ┌─────────────┼─────────────┐
+         ▼             ▼             ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│web_scraper  │ │ js_scraper  │ │ web_search  │
+│  (static)   │ │ (browser)   │ │   (SERP)    │
+└─────────────┘ └─────────────┘ └─────────────┘
 ```
 
 | Layer | Purpose |
 |-------|---------|
+| `justscrape_mcp.py` | MCP server exposing tools for AI models |
 | `scrape_premium.py` | Interactive CLI with menus, batch processing, settings |
 | `smart_scraper.py` | Auto-detection logic, fallback handling, output formatting |
 | `web_scraper.py` | Fast static scraping via requests + BeautifulSoup |
 | `js_scraper.py` | Browser-based scraping via Playwright for JS-heavy sites |
+| `web_search.py` | Free web search via DuckDuckGo |
 
 ## Installation
 
@@ -149,15 +236,17 @@ Browser mode blocks:
 | beautifulsoup4 | HTML parsing |
 | lxml | Fast HTML parser |
 | playwright | Headless browser for JS sites |
+| mcp | MCP server framework |
+| duckduckgo-search | Free web search |
 | click | Interactive CLI |
 | pyperclip | Clipboard support (optional) |
 
 ## Future Roadmap
 
-- **MCP Server Integration** - Expose `scrape_url` as a tool via JSON-RPC for Claude/LLM workflows
 - **Docker Support** - Containerized deployment with Playwright for JS rendering
 - **Proxy Rotation** - BrightData integration for scale
 - **Vector DB Pipeline** - Chain to AnythingLLM or Qdrant for RAG workflows
+- **SearXNG Integration** - Self-hosted meta-search as alternative to DuckDuckGo
 
 ## License
 
