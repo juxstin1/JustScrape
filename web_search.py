@@ -5,12 +5,17 @@ No API keys required - just works.
 This module provides free web search capabilities using DuckDuckGo.
 Designed to be used as a tool/capability worker - deterministic, no reasoning.
 
-Uses the duckduckgo-search library for reliable results, with fallback to HTML scraping.
+Features:
+- TTL cache to avoid duplicate requests
+- Exponential backoff for rate limiting
+- Multiple fallback methods
 """
 
 import time
-from typing import List, Dict, Optional
-from dataclasses import dataclass, asdict
+import hashlib
+import threading
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass, asdict, field
 
 
 @dataclass
@@ -36,6 +41,7 @@ class SearchResponse:
     source: str = "duckduckgo"
     success: bool = True
     error: Optional[str] = None
+    cached: bool = False
 
     def to_dict(self) -> Dict:
         return {
@@ -45,8 +51,122 @@ class SearchResponse:
             "search_time_ms": self.search_time_ms,
             "source": self.source,
             "success": self.success,
-            "error": self.error
+            "error": self.error,
+            "cached": self.cached
         }
+
+
+class SearchCache:
+    """Simple TTL cache for search results"""
+
+    def __init__(self, ttl_seconds: int = 300, max_size: int = 100):
+        self.ttl = ttl_seconds
+        self.max_size = max_size
+        self._cache: Dict[str, Tuple[float, SearchResponse]] = {}
+        self._lock = threading.Lock()
+
+    def _make_key(self, query: str, num_results: int) -> str:
+        """Create cache key from query params"""
+        raw = f"{query.lower().strip()}:{num_results}"
+        return hashlib.md5(raw.encode()).hexdigest()
+
+    def get(self, query: str, num_results: int) -> Optional[SearchResponse]:
+        """Get cached result if exists and not expired"""
+        key = self._make_key(query, num_results)
+        with self._lock:
+            if key in self._cache:
+                timestamp, response = self._cache[key]
+                if time.time() - timestamp < self.ttl:
+                    # Return cached response with flag
+                    return SearchResponse(
+                        query=response.query,
+                        results=response.results,
+                        total_results=response.total_results,
+                        search_time_ms=0,
+                        source=response.source,
+                        success=response.success,
+                        error=response.error,
+                        cached=True
+                    )
+                else:
+                    # Expired, remove it
+                    del self._cache[key]
+        return None
+
+    def set(self, query: str, num_results: int, response: SearchResponse):
+        """Cache a search response"""
+        if not response.success:
+            return  # Don't cache failures
+
+        key = self._make_key(query, num_results)
+        with self._lock:
+            # Evict oldest if at capacity
+            if len(self._cache) >= self.max_size:
+                oldest_key = min(self._cache, key=lambda k: self._cache[k][0])
+                del self._cache[oldest_key]
+
+            self._cache[key] = (time.time(), response)
+
+    def clear(self):
+        """Clear all cached results"""
+        with self._lock:
+            self._cache.clear()
+
+    def stats(self) -> Dict:
+        """Get cache statistics"""
+        with self._lock:
+            return {
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "ttl_seconds": self.ttl
+            }
+
+
+class RateLimiter:
+    """Simple rate limiter with exponential backoff"""
+
+    def __init__(self, min_delay: float = 1.0, max_delay: float = 30.0, backoff_factor: float = 2.0):
+        self.min_delay = min_delay
+        self.max_delay = max_delay
+        self.backoff_factor = backoff_factor
+        self._last_request = 0.0
+        self._current_delay = min_delay
+        self._consecutive_errors = 0
+        self._lock = threading.Lock()
+
+    def wait(self):
+        """Wait appropriate amount before next request"""
+        with self._lock:
+            now = time.time()
+            elapsed = now - self._last_request
+            if elapsed < self._current_delay:
+                time.sleep(self._current_delay - elapsed)
+            self._last_request = time.time()
+
+    def success(self):
+        """Call after successful request to reduce delay"""
+        with self._lock:
+            self._consecutive_errors = 0
+            self._current_delay = self.min_delay
+
+    def failure(self):
+        """Call after failed request to increase delay"""
+        with self._lock:
+            self._consecutive_errors += 1
+            self._current_delay = min(
+                self._current_delay * self.backoff_factor,
+                self.max_delay
+            )
+
+    def get_delay(self) -> float:
+        """Get current delay value"""
+        with self._lock:
+            return self._current_delay
+
+
+# Global cache and rate limiter (shared across instances)
+_search_cache = SearchCache(ttl_seconds=300, max_size=100)
+_rate_limiter = RateLimiter(min_delay=1.0, max_delay=30.0)
 
 
 class WebSearch:
@@ -54,15 +174,20 @@ class WebSearch:
     Free web search using DuckDuckGo.
     No API keys, no rate limits (within reason), just works.
 
-    Uses duckduckgo-search library for robust results.
+    Features:
+    - TTL cache (5 min default)
+    - Exponential backoff on rate limits
+    - Multiple fallback methods
     """
 
-    def __init__(self, timeout: int = 10):
+    def __init__(self, timeout: int = 10, use_cache: bool = True):
         """
         Args:
             timeout: Request timeout in seconds
+            use_cache: Whether to use TTL cache (default: True)
         """
         self.timeout = timeout
+        self.use_cache = use_cache
 
     def search(
         self,
@@ -81,29 +206,66 @@ class WebSearch:
         Returns:
             SearchResponse with results and metadata
         """
+        # Check cache first
+        if self.use_cache:
+            cached = _search_cache.get(query, num_results)
+            if cached:
+                return cached
+
         start_time = time.time()
+
+        # Wait for rate limiter
+        _rate_limiter.wait()
 
         try:
             # Try using duckduckgo-search library (most reliable)
-            return self._search_with_ddgs(query, num_results, region, start_time)
+            response = self._search_with_ddgs(query, num_results, region, start_time)
+            _rate_limiter.success()
+
+            # Cache successful response
+            if self.use_cache and response.success:
+                _search_cache.set(query, num_results, response)
+
+            return response
+
         except ImportError:
             # Fallback to HTML scraping
-            return self._search_with_html(query, num_results, region, start_time)
+            return self._try_html_fallback(query, num_results, region, start_time)
+
         except Exception as e:
-            # Try HTML fallback on any error
-            try:
-                return self._search_with_html(query, num_results, region, start_time)
-            except Exception as e2:
-                elapsed_ms = int((time.time() - start_time) * 1000)
-                return SearchResponse(
-                    query=query,
-                    results=[],
-                    total_results=0,
-                    search_time_ms=elapsed_ms,
-                    source="duckduckgo",
-                    success=False,
-                    error=f"All search methods failed: {str(e2)}"
-                )
+            _rate_limiter.failure()
+            return self._try_html_fallback(query, num_results, region, start_time)
+
+    def _try_html_fallback(
+        self,
+        query: str,
+        num_results: int,
+        region: str,
+        start_time: float
+    ) -> SearchResponse:
+        """Try HTML scraping as fallback"""
+        try:
+            _rate_limiter.wait()
+            response = self._search_with_html(query, num_results, region, start_time)
+            _rate_limiter.success()
+
+            if self.use_cache and response.success:
+                _search_cache.set(query, num_results, response)
+
+            return response
+
+        except Exception as e:
+            _rate_limiter.failure()
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            return SearchResponse(
+                query=query,
+                results=[],
+                total_results=0,
+                search_time_ms=elapsed_ms,
+                source="duckduckgo",
+                success=False,
+                error=f"All search methods failed: {str(e)}"
+            )
 
     def _search_with_ddgs(
         self,
@@ -270,11 +432,21 @@ def search_full(query: str, num_results: int = 10) -> Dict:
         num_results: Max results
 
     Returns:
-        Full SearchResponse as dict
+        Full SearchResponse as dict (includes 'cached' flag)
     """
     searcher = WebSearch()
     response = searcher.search(query, num_results)
     return response.to_dict()
+
+
+def get_cache_stats() -> Dict:
+    """Get search cache statistics"""
+    return _search_cache.stats()
+
+
+def clear_cache():
+    """Clear the search cache"""
+    _search_cache.clear()
 
 
 if __name__ == '__main__':
@@ -284,13 +456,12 @@ if __name__ == '__main__':
     query = "python web scraping tutorial"
     print(f"Query: {query}\n")
 
-    results = search(query, num_results=5)
+    # First search (not cached)
+    results = search_full(query, num_results=5)
+    print(f"Results: {results['total_results']}, Cached: {results['cached']}")
 
-    if results:
-        for r in results:
-            print(f"{r['position']}. {r['title']}")
-            print(f"   URL: {r['url']}")
-            print(f"   {r['snippet'][:100]}..." if r['snippet'] else "   (no snippet)")
-            print()
-    else:
-        print("No results found. Check your network connection.")
+    # Second search (should be cached)
+    results2 = search_full(query, num_results=5)
+    print(f"Results: {results2['total_results']}, Cached: {results2['cached']}")
+
+    print(f"\nCache stats: {get_cache_stats()}")
