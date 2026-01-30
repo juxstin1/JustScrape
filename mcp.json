@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "justscrape",
+  "version": "1.0.0",
+  "description": "Local retrieval and inspection MCP. Does not pretend to be Google. Reports failures honestly.",
+
+  "invariants": {
+    "no_boolean_success": "No endpoint returns a boolean 'success' field. Outcomes are classified, not flattened.",
+    "usable_is_not_default": "Classification defaults to failure modes. 'usable' must be earned via signals.",
+    "blocked_is_not_error": "Bot walls and thin content are retrieval outcomes, not exceptions.",
+    "content_may_be_null": "Content field is nullable. Absence of content is a signal, not a bug.",
+    "no_implicit_retry": "No endpoint retries failed requests. Single attempt, honest result.",
+    "javascript_is_opt_in": "JS rendering requires explicit allow_javascript=true. Static is default.",
+    "metrics_are_observational": "Metrics describe what happened. They are not targets or guarantees.",
+    "classification_is_deterministic": "Same input produces same classification. No randomness, no ML."
+  },
+
+  "tools": {
+    "search_sources": {
+      "description": "Search via DuckDuckGo. Returns ranked results without content.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "num_results": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 25,
+            "description": "Maximum results to return"
+          }
+        },
+        "required": ["query"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": { "type": "integer" },
+                "title": { "type": "string" },
+                "url": { "type": "string", "format": "uri" },
+                "snippet": { "type": "string" },
+                "source": { "type": "string", "const": "duckduckgo" }
+              }
+            }
+          },
+          "total_results": { "type": "integer" },
+          "search_time_ms": { "type": "integer" },
+          "cached": { "type": "boolean" }
+        }
+      }
+    },
+
+    "retrieve_source": {
+      "description": "Retrieve and classify a single URL. Never returns boolean success.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to retrieve"
+          },
+          "allow_javascript": {
+            "type": "boolean",
+            "default": true,
+            "description": "Allow Playwright JS rendering if static fails"
+          }
+        },
+        "required": ["url"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "title": { "type": ["string", "null"] },
+          "content": { "type": ["string", "null"] },
+          "signals": {
+            "type": "object",
+            "properties": {
+              "content_length": { "type": "integer", "minimum": 0 },
+              "method": {
+                "type": "string",
+                "enum": ["static", "javascript"]
+              },
+              "had_html": { "type": "boolean" },
+              "encoding_error": { "type": "boolean" }
+            },
+            "required": ["content_length", "method", "had_html", "encoding_error"]
+          },
+          "classification": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["usable", "thin", "blocked", "encoding-failure", "empty"],
+                "description": "usable=good content, thin=<500 chars, blocked=bot wall detected, encoding-failure=charset error, empty=no content"
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              },
+              "detected_patterns": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Patterns that triggered classification (e.g., 'cloudflare', 'content_length:129')"
+              }
+            },
+            "required": ["status", "confidence", "detected_patterns"]
+          }
+        },
+        "required": ["url", "signals", "classification"]
+      }
+    },
+
+    "research_with_sources": {
+      "description": "Search + retrieve with explicit failure separation. Usable sources and failures are never mixed.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Number of results to retrieve"
+          },
+          "allow_javascript": {
+            "type": "boolean",
+            "default": true,
+            "description": "Allow JS rendering"
+          },
+          "max_content_length": {
+            "type": "integer",
+            "default": 5000,
+            "description": "Truncate content beyond this length"
+          }
+        },
+        "required": ["query"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "sources": {
+            "type": "array",
+            "description": "Only usable sources. Content included.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": { "type": "string", "format": "uri" },
+                "title": { "type": ["string", "null"] },
+                "snippet": { "type": ["string", "null"] },
+                "status": { "type": "string", "const": "usable" },
+                "method": { "type": "string", "enum": ["static", "javascript"] },
+                "content_length": { "type": "integer" },
+                "content": { "type": "string" }
+              },
+              "required": ["url", "status", "content_length", "content"]
+            }
+          },
+          "failures": {
+            "type": "array",
+            "description": "Blocked, thin, or errored retrievals. No content.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": { "type": "string", "format": "uri" },
+                "title": { "type": ["string", "null"] },
+                "status": {
+                  "type": "string",
+                  "enum": ["thin", "blocked", "encoding-failure", "empty", "error"]
+                },
+                "content_length": { "type": "integer" },
+                "reason": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "required": ["url", "status"]
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "usable_count": { "type": "integer" },
+              "usable_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+              "blocked_count": { "type": "integer" },
+              "thin_count": { "type": "integer" }
+            },
+            "required": ["total", "usable_count", "usable_rate"]
+          }
+        },
+        "required": ["query", "sources", "failures", "metrics"]
+      }
+    },
+
+    "extract_urls": {
+      "description": "Extract links from a page. No content classification.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "filter_external": {
+            "type": "boolean",
+            "default": false,
+            "description": "Only return links to different domains"
+          }
+        },
+        "required": ["url"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "source_url": { "type": "string", "format": "uri" },
+          "urls": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" }
+          },
+          "count": { "type": "integer" }
+        },
+        "required": ["source_url", "urls", "count"]
+      }
+    }
+  },
+
+  "classification_rules": {
+    "description": "Empirically validated heuristics. These are not ML. They are falsifiable.",
+    "rules": [
+      {
+        "condition": "encoding_error == true",
+        "result": "encoding-failure",
+        "confidence": "high"
+      },
+      {
+        "condition": "content_length == 0",
+        "result": "empty",
+        "confidence": "high"
+      },
+      {
+        "condition": "content_length < 1500 AND blocked_pattern_match",
+        "result": "blocked",
+        "confidence": "high if < 500 else medium",
+        "patterns": [
+          "verify you are human",
+          "captcha",
+          "cloudflare",
+          "blocked by network security",
+          "just a moment...",
+          "ray id:",
+          "access denied",
+          "bot detection"
+        ]
+      },
+      {
+        "condition": "title in ['Just a moment...', 'Attention Required', 'Access Denied']",
+        "result": "blocked",
+        "confidence": "high"
+      },
+      {
+        "condition": "content_length < 500",
+        "result": "thin",
+        "confidence": "high if < 200 else medium"
+      },
+      {
+        "condition": "content_length >= 5000 AND has_paragraphs",
+        "result": "usable",
+        "confidence": "high"
+      },
+      {
+        "condition": "content_length >= 2000",
+        "result": "usable",
+        "confidence": "high if has_paragraphs else medium"
+      },
+      {
+        "condition": "content_length >= 500",
+        "result": "usable",
+        "confidence": "medium"
+      }
+    ]
+  },
+
+  "known_limitations": {
+    "v1": [
+      "Long ToS/cookie-policy pages may classify as 'usable' despite being useless. Requires topic modeling to fix.",
+      "DuckDuckGo is the only search backend. No Google/Bing fallback.",
+      "Rate limiting is per-IP. Heavy use will trigger throttling.",
+      "No proxy rotation. Same IP for all requests.",
+      "Paywalled content returns login walls, classified as 'blocked' or 'thin'.",
+      "Sites with aggressive bot detection (Reddit, Medium) will always fail."
+    ]
+  },
+
+  "not_in_v1": [
+    "Source scoring or ranking",
+    "Automatic retries",
+    "CSS selector extraction",
+    "Best source selection",
+    "Proxy/stealth configuration",
+    "LLM-side post-classification",
+    "Topic modeling",
+    "Domain-specific rules"
+  ]
+}

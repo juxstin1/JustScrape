@@ -275,7 +275,7 @@ class WebSearch:
         start_time: float
     ) -> SearchResponse:
         """Search using duckduckgo-search library"""
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
 
         results = []
 

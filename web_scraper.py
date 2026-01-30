@@ -101,13 +101,14 @@ class WebScraper:
                            'aside', 'form', 'iframe', 'noscript']):
             element.decompose()
         
-        # Remove common ad/tracking classes
+        # Remove common ad/tracking classes (use word boundaries to avoid false positives)
+        # e.g., 'ad' should not match 'header', 'download', 'reading'
         ad_patterns = [
-            'ad', 'advertisement', 'banner', 'promo', 'sponsor',
-            'popup', 'modal', 'cookie', 'newsletter', 'sidebar',
-            'social', 'share', 'comment', 'related', 'recommended'
+            r'\bad[s]?\b', r'\badvertisement\b', r'\bbanner\b', r'\bpromo\b', r'\bsponsor\b',
+            r'\bpopup\b', r'\bmodal\b', r'\bcookie\b', r'\bnewsletter\b', r'\bsidebar\b',
+            r'\bsocial\b', r'\bshare\b', r'\bcomments?\b', r'\brelated\b', r'\brecommended\b'
         ]
-        
+
         for pattern in ad_patterns:
             for element in soup.find_all(class_=re.compile(pattern, re.I)):
                 element.decompose()

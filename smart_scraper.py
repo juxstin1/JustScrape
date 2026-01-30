@@ -7,9 +7,11 @@ Integrates with sitemap registry for efficient URL discovery
 from typing import Optional, List, Dict, Union
 from dataclasses import dataclass
 from web_scraper import WebScraper, ContentType, ScrapedContent, quick_scrape
-from js_scraper import JavaScriptScraper, ScraperConfig
 from sitemap_registry import SitemapRegistry
 import re
+
+# NOTE: js_scraper is imported lazily inside methods that need it
+# This allows the module to load without Playwright installed
 
 
 class SmartScraper:
@@ -95,6 +97,7 @@ class SmartScraper:
         
         # Use JavaScript scraper
         if use_js:
+            from js_scraper import JavaScriptScraper
             with JavaScriptScraper() as js_scraper:
                 return js_scraper.scrape(url, content_types)
         
@@ -290,6 +293,7 @@ def compare_scraping_methods(url: str) -> Dict:
     
     # Try JS
     try:
+        from js_scraper import JavaScriptScraper
         with JavaScriptScraper() as js_scraper:
             js_result = js_scraper.scrape(url, [ContentType.CLEAN_TEXT])
             results['javascript'] = {
