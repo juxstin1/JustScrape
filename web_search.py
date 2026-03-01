@@ -565,7 +565,7 @@ class WebSearch:
         date_range: str = None,
     ) -> SearchResponse:
         """Search using duckduckgo-search library"""
-        from ddgs import DDGS
+        from duckduckgo_search import DDGS
 
         results = []
 

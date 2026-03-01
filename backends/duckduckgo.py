@@ -34,7 +34,7 @@ class DuckDuckGoBackend(SearchBackend):
 
     def is_available(self) -> bool:
         try:
-            from ddgs import DDGS
+            from duckduckgo_search import DDGS
             return True
         except ImportError:
             return False
