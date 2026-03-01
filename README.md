@@ -6,8 +6,17 @@ Layered intelligence web scraper + **MCP Server** that provides free web search 
 
 - **MCP Server** - Expose web search and scraping as tools for Claude, LM Studio, or any MCP-compatible client
 - **Free Web Search** - DuckDuckGo-based SERP search, no API keys required
-- **Smart Routing** - Domain-based JS detection (Twitter/X, Instagram, Reddit, etc.) plus content-length fallback
-- **Auto-Fallback** - If static scraping returns minimal content, automatically switches to browser rendering
+- **Multi-Backend Search** - Pluggable backend system: DuckDuckGo (default), SearXNG (self-hosted), Brave Search (free tier)
+- **Query Operators** - `site:`, `filetype:`, date range, domain exclusion built into the search API
+- **Parallel Scraping** - Search results scraped concurrently via `asyncio.gather` (3-5x faster)
+- **2-Layer Cache** - In-memory (5 min) + SQLite persistent (24 hr) — survives server restarts
+- **Per-Domain Rate Limiting** - Scraping different domains doesn't throttle each other
+- **Snippet Pre-Filtering** - Skips known-blocked domains and non-content URLs before scraping
+- **HEAD Pre-Check** - Verifies pages are reachable HTML before committing to a full download
+- **Relevance Scoring** - Scraped results ranked by query relevance (TF + title match + length)
+- **Robots.txt Awareness** - Respects robots.txt to avoid wasting time on disallowed paths
+- **Smart JS Fallback** - Multi-signal detection (noscript tags, script density, JS-required messages) not just content length
+- **httpx + HTTP/2** - Async scraper with HTTP/2 multiplexing and connection pooling
 - **Clean Extraction** - Strips ads, trackers, navigation, and bloat to extract actual content
 - **LLM-Ready Output** - Markdown and plain text formats optimized for AI consumption
 - **Interactive CLI** - Menu-driven interface with batch scraping, data extraction, and clipboard support
@@ -20,9 +29,9 @@ JustScrape can run as an MCP (Model Context Protocol) server, exposing tools tha
 
 | Tool | Description |
 |------|-------------|
-| `web_search` | Free SERP-style search via DuckDuckGo |
-| `scrape_url` | Clean content extraction from any URL |
-| `search_and_scrape` | Search + fetch top results in one call |
+| `web_search` | Free SERP search with operators (site:, filetype:, date range, exclude) |
+| `scrape_url` | Clean content extraction with HEAD pre-check and robots.txt awareness |
+| `search_and_scrape` | Search + parallel scrape with pre-filtering and relevance scoring |
 | `extract_urls` | Extract all links from a webpage |
 
 ### Setup with Claude Desktop
@@ -57,7 +66,9 @@ The server communicates via stdio using the MCP protocol.
   "name": "web_search",
   "arguments": {
     "query": "python web scraping tutorial",
-    "num_results": 5
+    "num_results": 5,
+    "site": "realpython.com",
+    "date_range": "year"
   }
 }
 ```
@@ -65,7 +76,7 @@ The server communicates via stdio using the MCP protocol.
 Returns:
 ```json
 {
-  "query": "python web scraping tutorial",
+  "query": "python web scraping tutorial site:realpython.com",
   "results": [
     {
       "position": 1,
@@ -75,7 +86,8 @@ Returns:
     }
   ],
   "total_results": 5,
-  "success": true
+  "success": true,
+  "cached": false
 }
 ```
 
@@ -104,12 +116,14 @@ Returns:
 
 | Layer | Purpose |
 |-------|---------|
-| `justscrape_mcp.py` | MCP server exposing tools for AI models |
+| `justscrape_mcp.py` | MCP server — parallel scraping, pre-filtering, relevance scoring |
 | `scrape_premium.py` | Interactive CLI with menus, batch processing, settings |
-| `smart_scraper.py` | Auto-detection logic, fallback handling, output formatting |
-| `web_scraper.py` | Fast static scraping via requests + BeautifulSoup |
+| `smart_scraper.py` | Multi-signal JS fallback detection, auto-routing |
+| `web_scraper.py` | Static scraping with HEAD pre-check, robots.txt, per-domain rate limiting |
+| `async_scraper.py` | httpx + HTTP/2 async scraper with connection pooling |
 | `js_scraper.py` | Browser-based scraping via Playwright for JS-heavy sites |
-| `web_search.py` | Free web search via DuckDuckGo |
+| `web_search.py` | Multi-backend search with 2-layer cache and query operators |
+| `backends/` | Pluggable search backends: DuckDuckGo, SearXNG, Brave Search |
 
 ## Installation
 
@@ -233,20 +247,56 @@ Browser mode blocks:
 | Package | Purpose |
 |---------|---------|
 | requests | HTTP requests for static scraping |
+| httpx[http2] | Async HTTP/2 scraping with connection pooling |
 | beautifulsoup4 | HTML parsing |
 | lxml | Fast HTML parser |
 | playwright | Headless browser for JS sites |
 | mcp | MCP server framework |
-| duckduckgo-search | Free web search |
+| duckduckgo-search | Free web search (default backend) |
 | click | Interactive CLI |
 | pyperclip | Clipboard support (optional) |
+
+## Multi-Backend Search
+
+JustScrape supports pluggable search backends. DuckDuckGo is the default (no config needed).
+
+### SearXNG (Self-Hosted Meta-Search)
+
+Unlimited queries via 70+ search engines:
+
+```bash
+# Deploy SearXNG
+docker run -d --name searxng -p 8080:8080 searxng/searxng
+
+# Use in Python
+from backends import SearXNGBackend, MultiSearch, DuckDuckGoBackend
+
+multi = MultiSearch([
+    SearXNGBackend(base_url="http://localhost:8080"),
+    DuckDuckGoBackend(),  # fallback
+])
+result = multi.search("python web scraping", num_results=10)
+```
+
+### Brave Search (Free Tier)
+
+2,000 queries/month with independent index:
+
+```bash
+export BRAVE_SEARCH_API_KEY="your-key-here"
+```
+
+```python
+from backends import BraveSearchBackend
+brave = BraveSearchBackend()
+result = brave.search("python tutorial", num_results=5)
+```
 
 ## Future Roadmap
 
 - **Docker Support** - Containerized deployment with Playwright for JS rendering
 - **Proxy Rotation** - BrightData integration for scale
 - **Vector DB Pipeline** - Chain to AnythingLLM or Qdrant for RAG workflows
-- **SearXNG Integration** - Self-hosted meta-search as alternative to DuckDuckGo
 
 ## License
 

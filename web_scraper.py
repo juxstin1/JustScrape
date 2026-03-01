@@ -1,16 +1,23 @@
 """
 Advanced Web Scraper - Cuts through bloated sites to extract clean, useful content
 Supports both static and JavaScript-heavy sites with intelligent content extraction
+
+Features:
+- HEAD pre-check to skip non-HTML, blocked, or oversized responses
+- Per-domain rate limiting (scraping different domains doesn't throttle each other)
+- Robots.txt awareness (caches per domain, respects crawl-delay)
 """
 
 import requests
 from bs4 import BeautifulSoup
-from typing import Optional, Dict, List, Union
+from typing import Optional, Dict, List, Union, Tuple
 import json
 import time
+import threading
 from urllib.parse import urljoin, urlparse
+from urllib.robotparser import RobotFileParser
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 
 
@@ -35,24 +42,157 @@ class ScrapedContent:
     images: Optional[List[str]] = None
     structured_data: Optional[Dict] = None
     status_code: Optional[int] = None
-    
+    scrape_method: Optional[str] = None
+
     def to_dict(self) -> Dict:
         return asdict(self)
-    
+
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2)
 
 
+# =============================================================================
+# ROBOTS.TXT CACHE
+# =============================================================================
+
+class RobotsCache:
+    """Cache robots.txt per domain to avoid wasting time on disallowed paths."""
+    _cache: Dict[str, RobotFileParser] = {}
+    _lock = threading.Lock()
+    _user_agent = "Mozilla/5.0"
+
+    @classmethod
+    def can_fetch(cls, url: str) -> bool:
+        """Check if URL is allowed by robots.txt. Returns True on failure (permissive)."""
+        try:
+            domain = urlparse(url).netloc.lower()
+            with cls._lock:
+                if domain not in cls._cache:
+                    rp = RobotFileParser()
+                    robots_url = f"https://{domain}/robots.txt"
+                    rp.set_url(robots_url)
+                    try:
+                        rp.read()
+                    except Exception:
+                        # If we can't read robots.txt, allow by default
+                        cls._cache[domain] = None
+                        return True
+                    cls._cache[domain] = rp
+
+                rp = cls._cache[domain]
+                if rp is None:
+                    return True
+                return rp.can_fetch(cls._user_agent, url)
+        except Exception:
+            return True
+
+    @classmethod
+    def get_crawl_delay(cls, url: str) -> Optional[float]:
+        """Get crawl-delay from robots.txt if specified."""
+        try:
+            domain = urlparse(url).netloc.lower()
+            with cls._lock:
+                rp = cls._cache.get(domain)
+                if rp:
+                    delay = rp.crawl_delay(cls._user_agent)
+                    return delay
+        except Exception:
+            pass
+        return None
+
+
+# =============================================================================
+# HEAD PRE-CHECK
+# =============================================================================
+
+def head_pre_check(url: str, session: requests.Session = None, timeout: int = 5) -> Tuple[bool, Dict]:
+    """
+    Lightweight HEAD request to check if URL is worth a full GET.
+
+    Returns:
+        (should_fetch, info_dict)
+    """
+    try:
+        s = session or requests.Session()
+        resp = s.head(url, allow_redirects=True, timeout=timeout,
+                      headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'})
+
+        info = {
+            "status_code": resp.status_code,
+            "final_url": resp.url,
+            "content_type": resp.headers.get('content-type', ''),
+            "content_length": resp.headers.get('content-length', ''),
+        }
+
+        # Block on auth/forbidden/rate-limited
+        if resp.status_code in (401, 403, 429, 451):
+            return False, {**info, "reason": f"status:{resp.status_code}"}
+
+        # Block on non-HTML content types
+        ct = info["content_type"].lower()
+        html_types = ('text/html', 'text/plain', 'application/xhtml')
+        if ct and not any(t in ct for t in html_types):
+            return False, {**info, "reason": f"content_type:{ct}"}
+
+        # Block on very large responses (>5MB probably not articles)
+        if info["content_length"]:
+            try:
+                size = int(info["content_length"])
+                if size > 5 * 1024 * 1024:
+                    return False, {**info, "reason": f"too_large:{size}"}
+            except ValueError:
+                pass
+
+        # Check if redirect went to a login page
+        final_path = urlparse(resp.url).path.lower()
+        if any(p in final_path for p in ['/login', '/signin', '/signup', '/auth']):
+            return False, {**info, "reason": f"redirect_to_login:{resp.url}"}
+
+        return True, info
+
+    except requests.RequestException:
+        # If HEAD fails, let the GET try anyway
+        return True, {"reason": "head_failed"}
+
+
+# =============================================================================
+# PER-DOMAIN RATE LIMITING FOR SCRAPER
+# =============================================================================
+
+class _ScraperDomainLimiter:
+    """Per-domain rate limiting for the web scraper."""
+    def __init__(self, default_delay: float = 1.0):
+        self.default_delay = default_delay
+        self._domains: Dict[str, float] = {}  # domain -> last_request_time
+        self._lock = threading.Lock()
+
+    def wait(self, url: str):
+        domain = urlparse(url).netloc.lower()
+        with self._lock:
+            last = self._domains.get(domain, 0.0)
+            elapsed = time.time() - last
+            wait_time = self.default_delay - elapsed
+        if wait_time > 0:
+            time.sleep(wait_time)
+        with self._lock:
+            self._domains[domain] = time.time()
+
+_scraper_limiter = _ScraperDomainLimiter(default_delay=1.0)
+
+
 class WebScraper:
     """
-    Main scraper class with intelligent content extraction
+    Main scraper class with intelligent content extraction.
+    Features per-domain rate limiting, HEAD pre-checks, and robots.txt awareness.
     """
-    
+
     def __init__(
         self,
         user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         timeout: int = 30,
-        rate_limit: float = 1.0
+        rate_limit: float = 1.0,
+        use_head_check: bool = True,
+        respect_robots: bool = True,
     ):
         self.session = requests.Session()
         self.session.headers.update({
@@ -66,27 +206,41 @@ class WebScraper:
         })
         self.timeout = timeout
         self.rate_limit = rate_limit
+        self.use_head_check = use_head_check
+        self.respect_robots = respect_robots
         self.last_request_time = 0
-    
-    def _rate_limit_wait(self):
-        """Enforce rate limiting between requests"""
-        elapsed = time.time() - self.last_request_time
-        if elapsed < self.rate_limit:
-            time.sleep(self.rate_limit - elapsed)
-        self.last_request_time = time.time()
-    
+
+    def _rate_limit_wait(self, url: str = None):
+        """Enforce per-domain rate limiting between requests"""
+        if url:
+            _scraper_limiter.wait(url)
+        else:
+            elapsed = time.time() - self.last_request_time
+            if elapsed < self.rate_limit:
+                time.sleep(self.rate_limit - elapsed)
+            self.last_request_time = time.time()
+
     def fetch(self, url: str) -> tuple[Optional[str], int]:
         """
-        Fetch raw HTML from URL
+        Fetch raw HTML from URL with optional HEAD pre-check and robots.txt respect.
         Returns (html_content, status_code)
         """
-        self._rate_limit_wait()
-        
+        # Check robots.txt
+        if self.respect_robots and not RobotsCache.can_fetch(url):
+            return None, 403
+
+        # HEAD pre-check
+        if self.use_head_check:
+            should_fetch, info = head_pre_check(url, self.session, timeout=min(self.timeout, 5))
+            if not should_fetch:
+                return None, info.get("status_code", 0)
+
+        self._rate_limit_wait(url)
+
         try:
             response = self.session.get(url, timeout=self.timeout)
             return response.text, response.status_code
         except requests.RequestException as e:
-            print(f"Error fetching {url}: {e}")
             return None, 0
     
     def extract_clean_text(self, html: str, soup: BeautifulSoup = None) -> str:

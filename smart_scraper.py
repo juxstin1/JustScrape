@@ -2,6 +2,11 @@
 Smart Web Scraper - Unified interface that auto-detects best scraping method
 Combines static and JavaScript scrapers with intelligent fallback
 Integrates with sitemap registry for efficient URL discovery
+
+Features:
+- Multi-signal JS fallback detection (not just content length)
+- Per-domain scraping intelligence
+- Integrates with sitemap registry for URL discovery
 """
 
 from typing import Optional, List, Dict, Union
@@ -16,41 +21,74 @@ import re
 
 class SmartScraper:
     """
-    Intelligent scraper that chooses the best method automatically
-    Falls back to JS scraper if static scraping fails or returns minimal content
+    Intelligent scraper that chooses the best method automatically.
+    Uses multi-signal detection for JS fallback instead of just content length.
     """
-    
-    # Domains known to be JS-heavy
+
+    # Domains known to be JS-heavy (always use browser)
     JS_HEAVY_DOMAINS = {
         'twitter.com', 'x.com', 'reddit.com', 'youtube.com',
         'instagram.com', 'facebook.com', 'linkedin.com',
         'medium.com', 'substack.com', 'discord.com'
     }
-    
+
+    # Patterns that indicate JS is needed
+    JS_NEEDED_PATTERNS = re.compile(
+        r'enable javascript|requires javascript|please turn on javascript|'
+        r'javascript is required|javascript must be enabled|'
+        r'this page requires javascript|browser does not support javascript',
+        re.IGNORECASE
+    )
+
     def __init__(
         self,
         min_content_length: int = 200,
         force_js: bool = False
     ):
-        """
-        Args:
-            min_content_length: Minimum content length to consider scrape successful
-            force_js: Always use JavaScript scraper
-        """
         self.min_content_length = min_content_length
         self.force_js = force_js
         self.static_scraper = WebScraper()
-    
+
     def _is_js_heavy_site(self, url: str) -> bool:
         """Check if URL is likely to need JavaScript rendering"""
         from urllib.parse import urlparse
-        domain = urlparse(url).netloc.lower()
-        
-        # Remove www. prefix
-        domain = domain.replace('www.', '')
-        
+        domain = urlparse(url).netloc.lower().replace('www.', '')
         return any(js_domain in domain for js_domain in self.JS_HEAVY_DOMAINS)
-    
+
+    def _needs_javascript(self, html: str, content: str, url: str) -> bool:
+        """
+        Multi-signal decision for whether to fall back to JS rendering.
+        Smarter than the old simple content-length check.
+        """
+        content_length = len(content) if content else 0
+
+        # Known JS-heavy domains
+        if self._is_js_heavy_site(url):
+            return True
+
+        # Short content + explicit JS requirement message in HTML
+        if content_length < 500 and html and self.JS_NEEDED_PATTERNS.search(html):
+            return True
+
+        # Very short content + page has noscript tag or high script density
+        if content_length < self.min_content_length and html:
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html, 'html.parser')
+                has_noscript = bool(soup.find('noscript'))
+                script_count = len(soup.find_all('script'))
+
+                if has_noscript or script_count > 5:
+                    return True
+            except Exception:
+                pass
+
+        # Fallback: just too short
+        if content_length < self.min_content_length:
+            return True
+
+        return False
+
     def scrape(
         self,
         url: str,
@@ -58,49 +96,42 @@ class SmartScraper:
         force_method: Optional[str] = None
     ) -> ScrapedContent:
         """
-        Intelligently scrape URL using best method
-        
-        Args:
-            url: URL to scrape
-            content_types: Types of content to extract
-            force_method: Force 'static' or 'js' scraping method
-        
-        Returns:
-            ScrapedContent object
+        Intelligently scrape URL using best method.
+
+        Uses multi-signal detection to decide between static and JS scraping.
         """
         if content_types is None:
             content_types = [ContentType.CLEAN_TEXT, ContentType.METADATA]
-        
+
         # Determine scraping method
         use_js = (
-            self.force_js or 
+            self.force_js or
             force_method == 'js' or
             (force_method != 'static' and self._is_js_heavy_site(url))
         )
-        
+
         if not use_js:
             # Try static scraping first
             result = self.static_scraper.scrape(url, content_types)
-            
-            # Check if we got good content
-            content_ok = (
-                result.content and 
-                len(result.content) >= self.min_content_length
-            )
-            
-            if content_ok:
+
+            # Multi-signal check: do we need JS?
+            # Get raw HTML for signal analysis
+            raw_html = None
+            try:
+                raw_html, _ = self.static_scraper.fetch(url)
+            except Exception:
+                pass
+
+            if not self._needs_javascript(raw_html, result.content, url):
                 return result
-            
-            # Fall back to JS scraper if content is minimal
-            print(f"Static scraping returned minimal content, trying JS scraper...")
+
             use_js = True
-        
-        # Use JavaScript scraper
+
         if use_js:
             from js_scraper import JavaScriptScraper
             with JavaScriptScraper() as js_scraper:
                 return js_scraper.scrape(url, content_types)
-        
+
         return result
     
     def scrape_to_markdown(self, url: str) -> str:

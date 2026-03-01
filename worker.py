@@ -10,11 +10,16 @@ This worker NEVER returns boolean success.
 Usability is explicitly classified.
 Bot walls are first-class outcomes.
 
+Upgrades:
+- Pre-filters search results (skips known-blocked domains, login pages)
+- Relevance scoring for scraped content
+- Parallel scraping via ThreadPoolExecutor
+
 Usage:
     python worker.py
 
 Tools:
-    search_sources - DuckDuckGo search
+    search_sources - DuckDuckGo search (with operator support)
     retrieve_source - Scrape with classification
     research_with_sources - Search + scrape with failure separation
     extract_urls - Link extraction
@@ -24,8 +29,9 @@ import json
 import re
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from web_search import search_full
+from web_search import search_full, should_scrape, relevance_score
 from web_scraper import WebScraper, ContentType
 
 # Lazy import SmartScraper to avoid Playwright requirement at startup
@@ -264,45 +270,76 @@ def research_with_sources(query: str, limit: int = 5, allow_javascript: bool = T
     """
     Search + retrieve with explicit failure separation.
 
+    Upgrades over v0:
+    - Pre-filters results (skips known-blocked domains, login pages)
+    - Parallel scraping via ThreadPoolExecutor
+    - Relevance scoring for usable sources
+    - Fetches extra results to compensate for filtered ones
+
     Returns:
         {
             "query": str,
-            "sources": [...],  # Only usable sources
+            "sources": [...],  # Only usable sources, sorted by relevance
             "failures": [...], # Blocked, thin, encoding failures
-            "metrics": {
-                "total": int,
-                "usable_count": int,
-                "usable_rate": float,
-                "blocked_count": int,
-                "thin_count": int
-            }
+            "skipped": [...],  # Pre-filtered (never attempted scrape)
+            "metrics": { ... }
         }
     """
-    # Search
-    search_result = search_full(query, limit)
+    # Search (fetch extra to compensate for pre-filtering)
+    search_result = search_full(query, limit + 3)
 
     if not search_result.get("success", False):
         return {
             "query": query,
             "sources": [],
             "failures": [],
+            "skipped": [],
             "metrics": {"total": 0, "usable_count": 0, "usable_rate": 0.0},
             "search_error": search_result.get("error", "Search failed")
         }
 
-    sources = []
-    failures = []
-
+    # Pre-filter
+    candidates = []
+    skipped = []
     for r in search_result.get("results", []):
         url = r.get("url", "")
         if not url:
             continue
 
+        ok, reason = should_scrape(url, r.get("snippet", ""))
+        if ok and len(candidates) < limit:
+            candidates.append(r)
+        else:
+            skipped.append({"url": url, "title": r.get("title"), "skip_reason": reason})
+
+    # Parallel scraping
+    sources = []
+    failures = []
+
+    def _retrieve_one(r):
+        url = r.get("url", "")
         try:
             retrieved = retrieve_source(url, allow_javascript=allow_javascript)
-            status = retrieved["classification"]["status"]
+            return r, retrieved, None
+        except Exception as e:
+            return r, None, str(e)
 
-            # Truncate content if needed
+    with ThreadPoolExecutor(max_workers=min(len(candidates), 5)) as executor:
+        futures = {executor.submit(_retrieve_one, r): r for r in candidates}
+        for future in as_completed(futures):
+            r, retrieved, error = future.result()
+            url = r.get("url", "")
+
+            if error:
+                failures.append({
+                    "url": url,
+                    "title": r.get("title"),
+                    "status": "error",
+                    "reason": error
+                })
+                continue
+
+            status = retrieved["classification"]["status"]
             content = retrieved.get("content") or ""
             if len(content) > max_content_length:
                 content = content[:max_content_length] + f"\n\n[Truncated - {len(retrieved.get('content', ''))} total chars]"
@@ -318,18 +355,17 @@ def research_with_sources(query: str, limit: int = 5, allow_javascript: bool = T
 
             if status == "usable":
                 entry["content"] = content
+                entry["relevance_score"] = relevance_score(
+                    query, retrieved.get("content", ""),
+                    retrieved.get("title") or r.get("title", "")
+                )
                 sources.append(entry)
             else:
                 entry["reason"] = retrieved["classification"]["detected_patterns"]
                 failures.append(entry)
 
-        except Exception as e:
-            failures.append({
-                "url": url,
-                "title": r.get("title"),
-                "status": "error",
-                "reason": str(e)
-            })
+    # Sort sources by relevance score
+    sources.sort(key=lambda s: s.get("relevance_score", 0), reverse=True)
 
     # Compute metrics
     total = len(sources) + len(failures)
@@ -341,12 +377,14 @@ def research_with_sources(query: str, limit: int = 5, allow_javascript: bool = T
         "query": query,
         "sources": sources,
         "failures": failures,
+        "skipped": skipped,
         "metrics": {
             "total": total,
             "usable_count": usable_count,
             "usable_rate": round(usable_count / total, 2) if total > 0 else 0.0,
             "blocked_count": blocked_count,
-            "thin_count": thin_count
+            "thin_count": thin_count,
+            "skipped_count": len(skipped),
         }
     }
 

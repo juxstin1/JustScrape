@@ -5,6 +5,9 @@ requests>=2.31.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
 
+# Async HTTP/2 scraping (Phase 4)
+httpx[http2]>=0.27.0
+
 # JavaScript rendering (optional, for JS-heavy sites)
 playwright>=1.40.0
 

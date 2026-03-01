@@ -10,14 +10,19 @@ Following the TOOL-worker architecture:
 - Fail loudly with metadata
 
 Tools exposed:
-- web_search: Free SERP-style search via DuckDuckGo
+- web_search: Free SERP-style search via DuckDuckGo (with operators)
 - scrape_url: Clean content extraction from any URL
-- search_and_scrape: Search + fetch top results in one call
+- search_and_scrape: Search + fetch top results in one call (parallel)
 - extract_urls: Extract links from a page
 
 Features:
-- TTL cache for search results (5 min)
-- Exponential backoff for rate limiting
+- 2-layer cache: in-memory (5 min) + SQLite persistent (24 hr)
+- Per-domain rate limiting with exponential backoff
+- Parallel scraping of search results (asyncio.gather)
+- Snippet pre-filtering to skip known-blocked domains
+- HEAD pre-check before full scraping
+- Relevance scoring to rank scraped results
+- Query operators (site:, filetype:, date range, exclude)
 - Lazy browser pool for JS rendering (only init when needed)
 
 Usage:
@@ -49,7 +54,10 @@ from mcp.types import (
 )
 
 # Import our modules
-from web_search import WebSearch, search_full, get_cache_stats
+from web_search import (
+    WebSearch, search_full, get_cache_stats,
+    should_scrape, relevance_score,
+)
 from smart_scraper import SmartScraper, scrape_article
 
 
@@ -266,7 +274,8 @@ async def list_tools() -> list[Tool]:
             name="web_search",
             description="""Search the web using DuckDuckGo (free, no API key needed).
 Returns SERP-style results with titles, URLs, and snippets.
-Results are cached for 5 minutes to avoid rate limiting.
+Results are cached in memory (5 min) and on disk (24 hr).
+Supports search operators: site restriction, filetype, date range, domain exclusion.
 
 Returns: JSON with query, results array, cached flag, and metadata.""",
             inputSchema={
@@ -280,6 +289,24 @@ Returns: JSON with query, results array, cached flag, and metadata.""",
                         "type": "integer",
                         "description": "Maximum number of results (default: 10, max: 25)",
                         "default": 10
+                    },
+                    "site": {
+                        "type": "string",
+                        "description": "Restrict results to a specific site (e.g., 'docs.python.org')"
+                    },
+                    "filetype": {
+                        "type": "string",
+                        "description": "Restrict to file type (e.g., 'pdf')"
+                    },
+                    "date_range": {
+                        "type": "string",
+                        "description": "Time filter: 'day', 'week', 'month', or 'year'",
+                        "enum": ["day", "week", "month", "year"]
+                    },
+                    "exclude_sites": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of domains to exclude from results"
                     }
                 },
                 "required": ["query"]
@@ -321,12 +348,15 @@ Combines web_search + scrape_url for efficient research.
 
 Flow:
 1. Search DuckDuckGo for the query
-2. Scrape the top N results
-3. Return search results with full content
+2. Pre-filter: skip known-blocked domains and non-content URLs
+3. HEAD pre-check: verify pages are reachable HTML before scraping
+4. Scrape results in parallel (not sequentially)
+5. Score each result for relevance to the query
+6. Return results sorted by relevance score
 
 Perfect for research tasks where you need actual content, not just links.
 
-Returns: JSON with search results, each including full scraped content.""",
+Returns: JSON with search results, each including full scraped content and relevance_score.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -343,6 +373,15 @@ Returns: JSON with search results, each including full scraped content.""",
                         "type": "integer",
                         "description": "Max characters per scraped page (default: 5000)",
                         "default": 5000
+                    },
+                    "site": {
+                        "type": "string",
+                        "description": "Restrict search to a specific site"
+                    },
+                    "date_range": {
+                        "type": "string",
+                        "description": "Time filter: 'day', 'week', 'month', or 'year'",
+                        "enum": ["day", "week", "month", "year"]
                     }
                 },
                 "required": ["query"]
@@ -427,9 +466,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
 
 async def handle_web_search(arguments: dict) -> CallToolResult:
-    """Handle web_search tool"""
+    """Handle web_search tool with operator support"""
     query = arguments.get("query", "")
     num_results = min(arguments.get("num_results", 10), 25)
+    site = arguments.get("site")
+    filetype = arguments.get("filetype")
+    date_range = arguments.get("date_range")
+    exclude_sites = arguments.get("exclude_sites")
 
     if not query:
         return CallToolResult(
@@ -440,9 +483,12 @@ async def handle_web_search(arguments: dict) -> CallToolResult:
             isError=True
         )
 
-    # Run search in thread pool to not block
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, lambda: search_full(query, num_results))
+    result = await loop.run_in_executor(
+        None,
+        lambda: search_full(query, num_results, site=site, filetype=filetype,
+                            date_range=date_range, exclude_sites=exclude_sites)
+    )
 
     return CallToolResult(
         content=[TextContent(
@@ -501,10 +547,15 @@ async def handle_scrape_url(arguments: dict) -> CallToolResult:
 
 
 async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
-    """Handle search_and_scrape tool"""
+    """
+    Handle search_and_scrape tool.
+    Upgraded with: parallel scraping, pre-filtering, HEAD checks, relevance scoring.
+    """
     query = arguments.get("query", "")
     num_results = min(arguments.get("num_results", 3), 5)
     max_content_length = arguments.get("max_content_length", 5000)
+    site = arguments.get("site")
+    date_range = arguments.get("date_range")
 
     if not query:
         return CallToolResult(
@@ -517,9 +568,10 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
 
     loop = asyncio.get_event_loop()
 
-    # First, search
+    # Step 1: Search
     search_result = await loop.run_in_executor(
-        None, lambda: search_full(query, num_results)
+        None, lambda: search_full(query, num_results + 3,  # fetch extra to compensate for filtering
+                                   site=site, date_range=date_range)
     )
 
     if not search_result.get("success", False):
@@ -531,53 +583,76 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
             isError=True
         )
 
-    # Then scrape each result using pooled scraper
-    scraper = PooledSmartScraper()
-    enriched_results = []
-
+    # Step 2: Pre-filter (skip known-blocked domains, login pages, etc.)
+    candidates = []
+    skipped = []
     for result in search_result.get("results", []):
         url = result.get("url", "")
         if not url:
             continue
 
+        ok, reason = should_scrape(url, result.get("snippet", ""))
+        if ok and len(candidates) < num_results:
+            candidates.append(result)
+        else:
+            skipped.append({"url": url, "title": result.get("title"), "skip_reason": reason})
+
+    # Step 3: Parallel scraping with asyncio.gather
+    scraper = PooledSmartScraper()
+
+    async def scrape_one(result: dict) -> dict:
+        url = result.get("url", "")
         try:
             scraped = await loop.run_in_executor(
                 None, lambda u=url: scraper.scrape_to_dict(u)
             )
-
-            # Truncate content if needed
-            content = scraped.get("content", "") or ""
+            full_content = scraped.get("content", "") or ""
+            content = full_content
             if len(content) > max_content_length:
-                content = content[:max_content_length] + f"\n\n[Truncated - {len(scraped.get('content', ''))} total chars]"
+                content = content[:max_content_length] + f"\n\n[Truncated - {len(full_content)} total chars]"
 
-            enriched_results.append({
+            # Compute relevance score
+            score = relevance_score(query, full_content, scraped.get("title") or result.get("title", ""))
+
+            return {
                 "position": result.get("position"),
-                "title": result.get("title"),
+                "title": scraped.get("title") or result.get("title"),
                 "url": url,
                 "snippet": result.get("snippet"),
                 "content": content,
-                "content_length": len(scraped.get("content", "") or ""),
-                "scraped_successfully": True
-            })
-
+                "content_length": len(full_content),
+                "relevance_score": score,
+                "scraped_successfully": True,
+            }
         except Exception as e:
-            enriched_results.append({
+            return {
                 "position": result.get("position"),
                 "title": result.get("title"),
                 "url": url,
                 "snippet": result.get("snippet"),
                 "content": None,
                 "error": str(e),
-                "scraped_successfully": False
-            })
+                "relevance_score": 0.0,
+                "scraped_successfully": False,
+            }
+
+    # Fire all scrape tasks in parallel
+    scrape_tasks = [scrape_one(r) for r in candidates]
+    enriched_results = await asyncio.gather(*scrape_tasks)
+    enriched_results = list(enriched_results)
+
+    # Step 4: Sort by relevance score (highest first)
+    enriched_results.sort(key=lambda r: r.get("relevance_score", 0), reverse=True)
 
     response = {
         "success": True,
         "query": query,
         "results": enriched_results,
+        "skipped": skipped,
         "total_results": len(enriched_results),
+        "total_skipped": len(skipped),
         "search_time_ms": search_result.get("search_time_ms", 0),
-        "search_cached": search_result.get("cached", False)
+        "search_cached": search_result.get("cached", False),
     }
 
     return CallToolResult(
@@ -650,11 +725,11 @@ async def handle_extract_urls(arguments: dict) -> CallToolResult:
 
 
 async def handle_get_stats(arguments: dict) -> CallToolResult:
-    """Handle get_stats tool"""
+    """Handle get_stats tool — includes memory cache, persistent cache, and browser pool"""
     stats = {
         "success": True,
         "search_cache": get_cache_stats(),
-        "browser_pool": _browser_pool.get_stats()
+        "browser_pool": _browser_pool.get_stats(),
     }
 
     return CallToolResult(
