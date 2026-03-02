@@ -163,6 +163,11 @@ class PooledSmartScraper(SmartScraper):
         if content_types is None:
             content_types = [ContentType.CLEAN_TEXT, ContentType.METADATA]
 
+        # Try non-browser adapters first (e.g., reddit JSON).
+        adapter_result = self._try_source_adapter(url, content_types)
+        if adapter_result is not None:
+            return adapter_result
+
         # Determine if we need JS
         use_js = (
             self.force_js or

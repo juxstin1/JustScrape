@@ -356,7 +356,7 @@ def normalize_url(url: str) -> str:
 
 # Domains known to block scrapers
 KNOWN_BLOCKED_DOMAINS = {
-    'medium.com', 'reddit.com', 'www.reddit.com', 'old.reddit.com',
+    'medium.com',
     'twitter.com', 'x.com', 'linkedin.com', 'www.linkedin.com',
     'facebook.com', 'www.facebook.com', 'instagram.com', 'www.instagram.com',
 }
@@ -376,6 +376,32 @@ def should_scrape(url: str, snippet: str = "") -> Tuple[bool, str]:
         domain = parsed.netloc.lower().replace('www.', '')
         path = parsed.path.lower()
 
+        # Skip non-HTML file extensions
+        non_html = ('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.zip', '.tar', '.gz',
+                    '.mp4', '.mp3', '.avi', '.mov', '.jpg', '.jpeg', '.png', '.gif', '.svg')
+        if any(path.endswith(ext) for ext in non_html):
+            return False, f"non_html_file:{path.split('.')[-1]}"
+
+        # Reddit has a JSON adapter and is safe to attempt.
+        if domain.endswith('reddit.com'):
+            return True, "adapter:reddit_json"
+
+        # dev.to has a public article API adapter.
+        if domain.endswith('dev.to'):
+            return True, "adapter:devto_api"
+
+        # GitHub Discussions pages have an HTML adapter.
+        if domain == 'github.com' and '/discussions/' in path:
+            return True, "adapter:github_discussions_html"
+
+        # Stack Exchange pages can be scraped via API adapter.
+        if (
+            domain == 'stackoverflow.com'
+            or domain.endswith('.stackexchange.com')
+            or domain in {'superuser.com', 'serverfault.com', 'askubuntu.com', 'mathoverflow.net'}
+        ):
+            return True, "adapter:stackexchange_api"
+
         # Skip known-blocked domains
         if domain in KNOWN_BLOCKED_DOMAINS or any(d in domain for d in KNOWN_BLOCKED_DOMAINS):
             return False, f"blocked_domain:{domain}"
@@ -383,12 +409,6 @@ def should_scrape(url: str, snippet: str = "") -> Tuple[bool, str]:
         # Skip login/signup/legal pages
         if any(p in path for p in SKIP_PATH_PATTERNS):
             return False, f"skip_path:{path}"
-
-        # Skip non-HTML file extensions
-        non_html = ('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.zip', '.tar', '.gz',
-                    '.mp4', '.mp3', '.avi', '.mov', '.jpg', '.jpeg', '.png', '.gif', '.svg')
-        if any(path.endswith(ext) for ext in non_html):
-            return False, f"non_html_file:{path.split('.')[-1]}"
 
     except Exception:
         pass

@@ -206,7 +206,7 @@ def retrieve_source(url: str, allow_javascript: bool = True) -> dict:
     try:
         scraper = get_smart_scraper()
 
-        if scraper == "static_only" or not allow_javascript:
+        if scraper == "static_only":
             ws = WebScraper()
             result = ws.scrape(url, [ContentType.CLEAN_TEXT, ContentType.METADATA])
             content = result.content
@@ -214,15 +214,27 @@ def retrieve_source(url: str, allow_javascript: bool = True) -> dict:
             had_html = result.status_code == 200
             method = "static"
         else:
-            result = scraper.scrape_to_dict(url)
+            force_method = None if allow_javascript else "static"
+            result = scraper.scrape_to_dict(url, force_method=force_method)
             content = result.get('content')
             title = result.get('title')
-            method = result.get('scrape_method', result.get('method', 'unknown'))
-            if 'javascript' in method.lower():
+            raw_method = (result.get('scrape_method') or result.get('method') or 'unknown').lower()
+            if 'javascript' in raw_method:
                 method = 'javascript'
+            elif raw_method == 'reddit_json':
+                method = 'reddit_json'
+            elif raw_method == 'stackexchange_api':
+                method = 'stackexchange_api'
+            elif raw_method == 'stackexchange_stackprinter':
+                method = 'stackexchange_stackprinter'
+            elif raw_method == 'devto_api':
+                method = 'devto_api'
+            elif raw_method == 'github_discussions_html':
+                method = 'github_discussions_html'
             else:
                 method = 'static'
-            had_html = True
+            status_code = result.get('status_code')
+            had_html = bool(status_code == 200 or content)
 
     except UnicodeEncodeError:
         encoding_error = True
