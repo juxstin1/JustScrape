@@ -1,5 +1,12 @@
+import json
+import sqlite3
+import tempfile
+import time
+
 import worker
 from web_search import (
+    PersistentSearchCache,
+    SearchCache,
     SearchResponse,
     SearchResult,
     build_query,
@@ -269,3 +276,99 @@ def test_retrieve_source_preserves_github_discussions_adapter_method(monkeypatch
 
     assert result["signals"]["method"] == "github_discussions_html"
     assert result["classification"]["status"] == "usable"
+
+
+def test_search_cache_date_range_keys_and_empty_miss():
+    cache = SearchCache(ttl_seconds=300, max_size=10)
+    response = SearchResponse(
+        query="iran updates",
+        results=[
+            SearchResult(
+                position=1,
+                title="Iran update",
+                url="https://example.com/iran-update",
+                snippet="news",
+                source="duckduckgo",
+            )
+        ],
+        total_results=1,
+        search_time_ms=5,
+        source="duckduckgo",
+        success=True,
+    )
+    cache.set("iran updates", 5, response, date_range="day")
+
+    assert cache.get("iran updates", 5, date_range="day") is not None
+    assert cache.get("iran updates", 5, date_range="week") is None
+
+    # Simulate legacy poisoned entry and ensure get() self-heals it.
+    poisoned = SearchResponse(
+        query="iran updates",
+        results=[],
+        total_results=0,
+        search_time_ms=1,
+        source="duckduckgo",
+        success=True,
+    )
+    poisoned_key = cache._make_key("iran updates", 5, "month")
+    cache._cache[poisoned_key] = (time.time(), poisoned)
+    assert cache.get("iran updates", 5, date_range="month") is None
+    assert poisoned_key not in cache._cache
+
+
+def test_persistent_cache_date_range_keys_and_empty_miss():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = f"{tmpdir}/cache.db"
+        cache = PersistentSearchCache(db_path=db_path, ttl_seconds=3600)
+
+        response = SearchResponse(
+            query="iran updates",
+            results=[
+                SearchResult(
+                    position=1,
+                    title="Iran update",
+                    url="https://example.com/iran-update",
+                    snippet="news",
+                    source="duckduckgo",
+                )
+            ],
+            total_results=1,
+            search_time_ms=5,
+            source="duckduckgo",
+            success=True,
+        )
+        cache.set("iran updates", 5, response, date_range="day")
+
+        assert cache.get("iran updates", 5, date_range="day") is not None
+        assert cache.get("iran updates", 5, date_range="week") is None
+
+        # Simulate legacy poisoned persistent entry and ensure get() deletes it.
+        poisoned_key = cache._make_key("iran updates", 5, "month")
+        poisoned_json = json.dumps(
+            {
+                "query": "iran updates",
+                "results": [],
+                "total_results": 0,
+                "search_time_ms": 0,
+                "source": "duckduckgo",
+                "success": True,
+                "error": None,
+                "cached": False,
+            }
+        )
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO search_cache (cache_key, query, num_results, response_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (poisoned_key, "iran updates", 5, poisoned_json, time.time()),
+        )
+        conn.commit()
+        conn.close()
+
+        assert cache.get("iran updates", 5, date_range="month") is None
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT 1 FROM search_cache WHERE cache_key = ?", (poisoned_key,)
+        ).fetchone()
+        conn.close()
+        assert row is None

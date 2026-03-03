@@ -71,18 +71,23 @@ class SearchCache:
         self._cache: Dict[str, Tuple[float, SearchResponse]] = {}
         self._lock = threading.Lock()
 
-    def _make_key(self, query: str, num_results: int) -> str:
+    def _make_key(self, query: str, num_results: int, date_range: Optional[str] = None) -> str:
         """Create cache key from query params"""
-        raw = f"{query.lower().strip()}:{num_results}"
+        raw = f"{query.lower().strip()}:{num_results}:{(date_range or '').lower()}"
         return hashlib.md5(raw.encode()).hexdigest()
 
-    def get(self, query: str, num_results: int) -> Optional[SearchResponse]:
+    def get(self, query: str, num_results: int, date_range: Optional[str] = None) -> Optional[SearchResponse]:
         """Get cached result if exists and not expired"""
-        key = self._make_key(query, num_results)
+        key = self._make_key(query, num_results, date_range)
         with self._lock:
             if key in self._cache:
                 timestamp, response = self._cache[key]
                 if time.time() - timestamp < self.ttl:
+                    # Empty cached searches can be transient failures (e.g. upstream throttling).
+                    # Treat as a miss so we re-query live instead of serving stale empties.
+                    if response.total_results == 0:
+                        del self._cache[key]
+                        return None
                     return SearchResponse(
                         query=response.query,
                         results=response.results,
@@ -97,12 +102,12 @@ class SearchCache:
                     del self._cache[key]
         return None
 
-    def set(self, query: str, num_results: int, response: SearchResponse):
+    def set(self, query: str, num_results: int, response: SearchResponse, date_range: Optional[str] = None):
         """Cache a search response"""
-        if not response.success:
+        if not response.success or response.total_results == 0:
             return
 
-        key = self._make_key(query, num_results)
+        key = self._make_key(query, num_results, date_range)
         with self._lock:
             if len(self._cache) >= self.max_size:
                 oldest_key = min(self._cache, key=lambda k: self._cache[k][0])
@@ -151,13 +156,13 @@ class PersistentSearchCache:
             conn.commit()
             conn.close()
 
-    def _make_key(self, query: str, num_results: int) -> str:
-        raw = f"{query.lower().strip()}:{num_results}"
+    def _make_key(self, query: str, num_results: int, date_range: Optional[str] = None) -> str:
+        raw = f"{query.lower().strip()}:{num_results}:{(date_range or '').lower()}"
         return hashlib.md5(raw.encode()).hexdigest()
 
-    def get(self, query: str, num_results: int) -> Optional[SearchResponse]:
+    def get(self, query: str, num_results: int, date_range: Optional[str] = None) -> Optional[SearchResponse]:
         """Get from persistent cache if not expired"""
-        key = self._make_key(query, num_results)
+        key = self._make_key(query, num_results, date_range)
         with self._lock:
             try:
                 conn = sqlite3.connect(self.db_path)
@@ -172,6 +177,13 @@ class PersistentSearchCache:
                     response_json, created_at = row
                     if time.time() - created_at < self.ttl:
                         data = __import__('json').loads(response_json)
+                        if data.get("total_results", 0) == 0:
+                            # Self-heal poisoned persistent entries.
+                            conn = sqlite3.connect(self.db_path)
+                            conn.execute("DELETE FROM search_cache WHERE cache_key = ?", (key,))
+                            conn.commit()
+                            conn.close()
+                            return None
                         results = [
                             SearchResult(
                                 position=r["position"],
@@ -195,12 +207,12 @@ class PersistentSearchCache:
                 pass
         return None
 
-    def set(self, query: str, num_results: int, response: SearchResponse):
+    def set(self, query: str, num_results: int, response: SearchResponse, date_range: Optional[str] = None):
         """Store in persistent cache"""
-        if not response.success:
+        if not response.success or response.total_results == 0:
             return
 
-        key = self._make_key(query, num_results)
+        key = self._make_key(query, num_results, date_range)
         import json as _json
         response_json = _json.dumps(response.to_dict())
 
@@ -462,14 +474,18 @@ _rate_limiter = PerDomainRateLimiter(default_delay=1.0, max_delay=30.0)
 
 class WebSearch:
     """
-    Free web search using DuckDuckGo.
-    No API keys, no rate limits (within reason), just works.
+    Free web search with multi-backend fallback.
+    Primary: SearXNG (self-hosted, no rate limits)
+    Fallback: DuckDuckGo (via library or HTML scraping)
 
     Features:
     - TTL cache (5 min default)
     - Exponential backoff on rate limits
-    - Multiple fallback methods
+    - SearXNG → DuckDuckGo fallback chain
     """
+
+    # SearXNG instance URL (Docker: docker run -d --name searxng -p 8080:8080 searxng/searxng)
+    SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8080")
 
     def __init__(self, timeout: int = 10, use_cache: bool = True):
         """
@@ -491,7 +507,8 @@ class WebSearch:
         date_range: str = None,
     ) -> SearchResponse:
         """
-        Search DuckDuckGo and return structured results.
+        Search the web and return structured results.
+        Tries SearXNG first, falls back to DuckDuckGo.
 
         Args:
             query: Search query string
@@ -511,46 +528,122 @@ class WebSearch:
 
         # Check L1 (memory) cache
         if self.use_cache:
-            cached = _search_cache.get(effective_query, num_results)
+            cached = _search_cache.get(effective_query, num_results, date_range=date_range)
             if cached:
                 return cached
 
             # Check L2 (persistent SQLite) cache
-            cached = _persistent_cache.get(effective_query, num_results)
+            cached = _persistent_cache.get(effective_query, num_results, date_range=date_range)
             if cached:
                 # Promote to L1
-                _search_cache.set(effective_query, num_results, cached)
+                _search_cache.set(effective_query, num_results, cached, date_range=date_range)
                 return cached
 
         start_time = time.time()
 
+        # Try SearXNG first (self-hosted, never rate-limits)
+        searxng_result = self._search_with_searxng(
+            effective_query, num_results, date_range, start_time
+        )
+        if searxng_result and searxng_result.success and searxng_result.total_results > 0:
+            if self.use_cache:
+                _search_cache.set(effective_query, num_results, searxng_result, date_range=date_range)
+                _persistent_cache.set(effective_query, num_results, searxng_result, date_range=date_range)
+            return searxng_result
+
+        # Fallback: DuckDuckGo
         # Wait for rate limiter (keyed to DuckDuckGo domain)
         _rate_limiter.wait("https://duckduckgo.com")
 
         try:
             response = self._search_with_ddgs(effective_query, num_results, region, start_time, date_range)
+
+            # Treat 0 results as a failure (DDG returns empty when CAPTCHA'd)
+            if response.success and response.total_results == 0:
+                _rate_limiter.failure("https://duckduckgo.com")
+                return self._try_html_fallback(effective_query, num_results, region, start_time, date_range=date_range)
+
             _rate_limiter.success("https://duckduckgo.com")
 
             # Cache to both layers
             if self.use_cache and response.success:
-                _search_cache.set(effective_query, num_results, response)
-                _persistent_cache.set(effective_query, num_results, response)
+                _search_cache.set(effective_query, num_results, response, date_range=date_range)
+                _persistent_cache.set(effective_query, num_results, response, date_range=date_range)
 
             return response
 
         except ImportError:
-            return self._try_html_fallback(effective_query, num_results, region, start_time)
+            return self._try_html_fallback(effective_query, num_results, region, start_time, date_range=date_range)
 
         except Exception as e:
             _rate_limiter.failure("https://duckduckgo.com")
-            return self._try_html_fallback(effective_query, num_results, region, start_time)
+            return self._try_html_fallback(effective_query, num_results, region, start_time, date_range=date_range)
+
+    def _search_with_searxng(
+        self,
+        query: str,
+        num_results: int,
+        date_range: str,
+        start_time: float,
+    ) -> Optional[SearchResponse]:
+        """
+        Search via local SearXNG instance (Docker).
+        Returns None if SearXNG is unreachable.
+        """
+        import requests as _requests
+
+        params = {
+            "q": query,
+            "format": "json",
+            "categories": "general",
+        }
+        if date_range:
+            time_range_map = {"day": "day", "week": "week", "month": "month", "year": "year"}
+            tr = time_range_map.get(date_range)
+            if tr:
+                params["time_range"] = tr
+
+        try:
+            resp = _requests.get(
+                f"{self.SEARXNG_URL}/search",
+                params=params,
+                headers={"Accept": "application/json"},
+                timeout=min(self.timeout + 5, 20),
+            )
+            if resp.status_code != 200:
+                return None
+
+            data = resp.json()
+            raw_results = data.get("results", [])
+            results = []
+            for i, r in enumerate(raw_results[:num_results]):
+                results.append(SearchResult(
+                    position=i + 1,
+                    title=r.get("title", ""),
+                    url=r.get("url", ""),
+                    snippet=r.get("content", ""),
+                    source=f"searxng:{r.get('engine', 'unknown')}",
+                ))
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            return SearchResponse(
+                query=query,
+                results=results,
+                total_results=len(results),
+                search_time_ms=elapsed_ms,
+                source="searxng",
+                success=True,
+            )
+        except Exception:
+            return None
 
     def _try_html_fallback(
         self,
         query: str,
         num_results: int,
         region: str,
-        start_time: float
+        start_time: float,
+        date_range: str = None,
     ) -> SearchResponse:
         """Try HTML scraping as fallback"""
         try:
@@ -559,7 +652,8 @@ class WebSearch:
             _rate_limiter.success()
 
             if self.use_cache and response.success:
-                _search_cache.set(query, num_results, response)
+                _search_cache.set(query, num_results, response, date_range=date_range)
+                _persistent_cache.set(query, num_results, response, date_range=date_range)
 
             return response
 
@@ -708,10 +802,63 @@ class WebSearch:
 # QUERY BUILDING
 # =============================================================================
 
+def _sanitize_site(site: str) -> Tuple[str, str]:
+    """
+    Sanitize a site restriction value.
+    DuckDuckGo site: operator only works with domains, not paths.
+
+    Returns (domain, extracted_path_keywords) so path info isn't lost.
+    E.g. "cnn.com/breaking-news" -> ("cnn.com", "breaking-news")
+    """
+    site = site.strip().rstrip('/')
+    # Remove protocol if present
+    if '://' in site:
+        site = site.split('://', 1)[1]
+    # Split domain from path
+    if '/' in site:
+        domain, path = site.split('/', 1)
+        # Convert path segments to search keywords
+        path_keywords = path.replace('/', ' ').replace('-', ' ').replace('_', ' ').strip()
+        return domain, path_keywords
+    return site, ""
+
+
+def _extract_inline_operators(query: str) -> Tuple[str, Optional[str], Optional[str]]:
+    """
+    Extract site: and filetype: operators that models embed directly in the query string.
+    Returns (cleaned_query, site_or_none, filetype_or_none).
+
+    Handles: "site:cnn.com/breaking-news", "site:docs.python.org python tutorial"
+    """
+    site = None
+    filetype = None
+
+    # Extract site:VALUE
+    site_match = re.search(r'\bsite:(\S+)', query)
+    if site_match:
+        site = site_match.group(1)
+        query = query[:site_match.start()] + query[site_match.end():]
+
+    # Extract filetype:VALUE
+    ft_match = re.search(r'\bfiletype:(\S+)', query)
+    if ft_match:
+        filetype = ft_match.group(1)
+        query = query[:ft_match.start()] + query[ft_match.end():]
+
+    # Clean up extra whitespace
+    query = ' '.join(query.split()).strip()
+
+    return query, site, filetype
+
+
 def build_query(query: str, site: str = None, filetype: str = None,
                 exclude_sites: List[str] = None) -> str:
     """
     Build search query with operators.
+    Resilient to common LLM mistakes:
+    - Strips paths from site: values (DuckDuckGo only supports domains)
+    - Extracts site:/filetype: embedded in the query string itself
+    - Folds path segments back into the query as keywords
 
     Args:
         query: Base search query
@@ -719,7 +866,26 @@ def build_query(query: str, site: str = None, filetype: str = None,
         filetype: Restrict to file type (e.g., "pdf")
         exclude_sites: Domains to exclude
     """
-    parts = [query]
+    # Step 1: Extract any operators the model embedded in the query itself
+    query, inline_site, inline_filetype = _extract_inline_operators(query)
+
+    # Use inline values as fallback if params weren't provided
+    if not site and inline_site:
+        site = inline_site
+    if not filetype and inline_filetype:
+        filetype = inline_filetype
+
+    # Step 2: Sanitize site — strip path, fold path keywords into query
+    path_keywords = ""
+    if site:
+        site, path_keywords = _sanitize_site(site)
+
+    # Step 3: Build final query
+    parts = []
+    if query:
+        parts.append(query)
+    if path_keywords:
+        parts.append(path_keywords)
     if site:
         parts.append(f"site:{site}")
     if filetype:
