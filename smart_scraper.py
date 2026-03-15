@@ -798,6 +798,11 @@ class SmartScraper:
         if content_types is None:
             content_types = [ContentType.CLEAN_TEXT, ContentType.METADATA]
 
+        # SSRF protection: reject unsafe URLs before any network request
+        url_ok, url_reason = _validate_url(url)
+        if not url_ok:
+            return ScrapedContent(url=url, status_code=0)
+
         # Try non-browser adapters first for known hard targets.
         adapter_result = self._try_source_adapter(url, content_types)
         if adapter_result is not None:
