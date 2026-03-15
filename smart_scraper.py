@@ -20,6 +20,36 @@ import re
 import requests
 
 # NOTE: js_scraper is imported lazily inside methods that need it
+
+# Maximum response size for adapter HTTP requests (10 MB)
+MAX_ADAPTER_RESPONSE_SIZE = 10 * 1024 * 1024
+
+
+def _safe_get(url: str, headers: dict = None, timeout: int = 15) -> Optional[requests.Response]:
+    """HTTP GET with response size cap. Returns None if too large or on error."""
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout, stream=True)
+        if resp.status_code != 200:
+            resp.close()
+            return None
+        # Check Content-Length header first
+        cl = resp.headers.get('content-length')
+        if cl and int(cl) > MAX_ADAPTER_RESPONSE_SIZE:
+            resp.close()
+            return None
+        # Read with size cap
+        chunks = []
+        size = 0
+        for chunk in resp.iter_content(chunk_size=8192):
+            size += len(chunk)
+            if size > MAX_ADAPTER_RESPONSE_SIZE:
+                resp.close()
+                return None
+            chunks.append(chunk)
+        resp._content = b"".join(chunks)
+        return resp
+    except Exception:
+        return None
 # This allows the module to load without Playwright installed
 
 
@@ -166,10 +196,10 @@ class SmartScraper:
             "User-Agent": "justscrape/1.0 (reddit-json-adapter)",
             "Accept": "application/json",
         }
+        response = _safe_get(json_url, headers=headers, timeout=15)
+        if response is None:
+            return None
         try:
-            response = requests.get(json_url, headers=headers, timeout=15)
-            if response.status_code != 200:
-                return None
             payload = response.json()
         except Exception:
             return None
@@ -307,14 +337,14 @@ class SmartScraper:
         payload = None
         chosen_api_url = None
         for api_url in api_urls:
-            try:
-                resp = requests.get(api_url, headers=headers, timeout=15)
-                if resp.status_code == 200:
+            resp = _safe_get(api_url, headers=headers, timeout=15)
+            if resp is not None:
+                try:
                     payload = resp.json()
                     chosen_api_url = api_url
                     break
-            except Exception:
-                continue
+                except Exception:
+                    continue
 
         if not payload:
             return None
@@ -384,11 +414,8 @@ class SmartScraper:
             "User-Agent": "justscrape/1.0 (github-discussions-adapter)",
             "Accept": "text/html,application/xhtml+xml",
         }
-        try:
-            response = requests.get(url, headers=headers, timeout=20)
-            if response.status_code != 200 or not response.text:
-                return None
-        except Exception:
+        response = _safe_get(url, headers=headers, timeout=20)
+        if response is None or not response.text:
             return None
 
         try:
@@ -508,10 +535,10 @@ class SmartScraper:
             f"?order=desc&sort=votes&site={site}&filter=withbody&pagesize=5"
         )
 
+        q_resp = _safe_get(question_url, headers=headers, timeout=15)
+        if q_resp is None:
+            return self._scrape_stackexchange_stackprinter(url, content_types, domain, site, question_id)
         try:
-            q_resp = requests.get(question_url, headers=headers, timeout=15)
-            if q_resp.status_code != 200:
-                return self._scrape_stackexchange_stackprinter(url, content_types, domain, site, question_id)
             q_payload = q_resp.json()
             q_items = q_payload.get("items", [])
             if not q_items:
@@ -521,12 +548,12 @@ class SmartScraper:
             return self._scrape_stackexchange_stackprinter(url, content_types, domain, site, question_id)
 
         answer_items = []
-        try:
-            a_resp = requests.get(answers_url, headers=headers, timeout=15)
-            if a_resp.status_code == 200:
+        a_resp = _safe_get(answers_url, headers=headers, timeout=15)
+        if a_resp is not None:
+            try:
                 answer_items = a_resp.json().get("items", [])
-        except Exception:
-            answer_items = []
+            except Exception:
+                answer_items = []
 
         result = ScrapedContent(
             url=url,
@@ -627,11 +654,8 @@ class SmartScraper:
             "Accept": "text/html,application/xhtml+xml",
         }
 
-        try:
-            response = requests.get(stackprinter_url, headers=headers, timeout=20)
-            if response.status_code != 200 or not response.text:
-                return None
-        except Exception:
+        response = _safe_get(stackprinter_url, headers=headers, timeout=20)
+        if response is None or not response.text:
             return None
 
         try:
@@ -808,7 +832,8 @@ class SmartScraper:
             with JavaScriptScraper() as js_scraper:
                 return js_scraper.scrape(url, content_types)
 
-        return result
+        # Unreachable, but safe fallback to prevent UnboundLocalError
+        return ScrapedContent(url=url)
     
     def scrape_to_markdown(self, url: str) -> str:
         """

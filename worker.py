@@ -508,7 +508,9 @@ def main():
         except TypeError as e:
             error(f"Invalid arguments: {e}")
         except Exception:
-            error(traceback.format_exc())
+            # Log full traceback to stderr, send sanitized error to caller
+            traceback.print_exc(file=sys.stderr)
+            error("Internal error. Check server logs for details.")
 
 
 if __name__ == "__main__":

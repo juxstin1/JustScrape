@@ -150,6 +150,16 @@ class LazyBrowserPool:
 # Global browser pool (lazy singleton)
 _browser_pool = LazyBrowserPool()
 
+# Global concurrency limit for outbound scrape requests (prevents DDoS amplification)
+MAX_CONCURRENT_SCRAPES = 5
+_scrape_semaphore = None  # Initialized lazily in async context
+
+def _get_scrape_semaphore():
+    global _scrape_semaphore
+    if _scrape_semaphore is None:
+        _scrape_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
+    return _scrape_semaphore
+
 
 class PooledSmartScraper(SmartScraper):
     """
@@ -159,7 +169,7 @@ class PooledSmartScraper(SmartScraper):
 
     def scrape(self, url, content_types=None, force_method=None):
         """Override to use pooled browser for JS scraping"""
-        from web_scraper import ContentType
+        from web_scraper import ContentType, ScrapedContent
 
         if content_types is None:
             content_types = [ContentType.CLEAN_TEXT, ContentType.METADATA]
@@ -190,7 +200,8 @@ class PooledSmartScraper(SmartScraper):
         if use_js:
             return self._scrape_with_pooled_browser(url, content_types)
 
-        return result
+        # Unreachable, but safe fallback
+        return ScrapedContent(url=url)
 
     def _scrape_with_pooled_browser(self, url, content_types):
         """Scrape using pooled browser"""
@@ -204,11 +215,14 @@ class PooledSmartScraper(SmartScraper):
             raise ValueError(f"URL scheme '{scheme}' is not allowed for browser scraping")
 
         browser = _browser_pool.get_browser()
-        page = browser.new_page()
+        # Use isolated browser context per scrape to prevent cookie/storage leakage
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            java_script_enabled=True,
+        )
+        page = context.new_page()
 
         try:
-            # Set viewport
-            page.set_viewport_size({"width": 1920, "height": 1080})
 
             # Block tracking/ads
             def route_handler(route):
@@ -271,6 +285,7 @@ class PooledSmartScraper(SmartScraper):
 
         finally:
             page.close()
+            context.close()
 
 
 # Initialize MCP server
@@ -464,12 +479,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             )
 
     except Exception as e:
+        import sys
+        # Log full error to stderr for debugging; return sanitized message to client
+        print(f"[justscrape] Tool '{name}' error: {e}", file=sys.stderr)
         return CallToolResult(
             content=[TextContent(
                 type="text",
                 text=json.dumps({
                     "success": False,
-                    "error": str(e),
+                    "error": "Internal server error. Check server logs for details.",
                     "tool": name
                 }, indent=2)
             )],
@@ -556,12 +574,14 @@ async def handle_scrape_url(arguments: dict) -> CallToolResult:
         )
 
     except Exception as e:
+        import sys
+        print(f"[justscrape] scrape_url error for {url}: {e}", file=sys.stderr)
         return CallToolResult(
             content=[TextContent(
                 type="text",
                 text=json.dumps({
                     "success": False,
-                    "error": str(e),
+                    "error": "Scraping failed. Check server logs for details.",
                     "url": url
                 }, indent=2)
             )],
@@ -625,39 +645,41 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
 
     async def scrape_one(result: dict) -> dict:
         url = result.get("url", "")
-        try:
-            scraped = await loop.run_in_executor(
-                None, lambda u=url: scraper.scrape_to_dict(u)
-            )
-            full_content = scraped.get("content", "") or ""
-            content = full_content
-            if len(content) > max_content_length:
-                content = content[:max_content_length] + f"\n\n[Truncated - {len(full_content)} total chars]"
+        sem = _get_scrape_semaphore()
+        async with sem:  # Limit concurrent outbound scrapes
+            try:
+                scraped = await loop.run_in_executor(
+                    None, lambda u=url: scraper.scrape_to_dict(u)
+                )
+                full_content = scraped.get("content", "") or ""
+                content = full_content
+                if len(content) > max_content_length:
+                    content = content[:max_content_length] + f"\n\n[Truncated - {len(full_content)} total chars]"
 
-            # Compute relevance score
-            score = relevance_score(query, full_content, scraped.get("title") or result.get("title", ""))
+                # Compute relevance score
+                score = relevance_score(query, full_content, scraped.get("title") or result.get("title", ""))
 
-            return {
-                "position": result.get("position"),
-                "title": scraped.get("title") or result.get("title"),
-                "url": url,
-                "snippet": result.get("snippet"),
-                "content": content,
-                "content_length": len(full_content),
-                "relevance_score": score,
-                "scraped_successfully": True,
-            }
-        except Exception as e:
-            return {
-                "position": result.get("position"),
-                "title": result.get("title"),
-                "url": url,
-                "snippet": result.get("snippet"),
-                "content": None,
-                "error": str(e),
-                "relevance_score": 0.0,
-                "scraped_successfully": False,
-            }
+                return {
+                    "position": result.get("position"),
+                    "title": scraped.get("title") or result.get("title"),
+                    "url": url,
+                    "snippet": result.get("snippet"),
+                    "content": content,
+                    "content_length": len(full_content),
+                    "relevance_score": score,
+                    "scraped_successfully": True,
+                }
+            except Exception as e:
+                return {
+                    "position": result.get("position"),
+                    "title": result.get("title"),
+                    "url": url,
+                    "snippet": result.get("snippet"),
+                    "content": None,
+                    "error": "Scraping failed",
+                    "relevance_score": 0.0,
+                    "scraped_successfully": False,
+                }
 
     # Fire all scrape tasks in parallel
     scrape_tasks = [scrape_one(r) for r in candidates]
