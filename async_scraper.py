@@ -133,6 +133,12 @@ class AsyncWebScraper:
         Async fetch with per-domain concurrency limiting.
         Returns (html, status_code, info).
         """
+        # SSRF protection: validate URL before any outbound request
+        from url_validator import validate_url
+        url_ok, url_reason = validate_url(url)
+        if not url_ok:
+            return None, 0, {"reason": f"blocked:{url_reason}"}
+
         domain_sem = _get_domain_semaphore(url)
 
         async with _global_semaphore:

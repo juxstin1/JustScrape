@@ -95,10 +95,16 @@ class JavaScriptScraper:
         
         if not self.browser:
             raise RuntimeError("Use this scraper in a context manager (with statement)")
-        
+
+        # SSRF protection: block non-HTTP schemes before Playwright navigation
+        from urllib.parse import urlparse as _urlparse
+        _scheme = _urlparse(url).scheme.lower()
+        if _scheme not in ('http', 'https'):
+            raise ValueError(f"URL scheme '{_scheme}' is not allowed for browser scraping")
+
         page = self.browser.new_page()
         self._setup_page(page)
-        
+
         try:
             # Navigate to page
             page.goto(url, wait_until='networkidle', timeout=self.config.timeout)

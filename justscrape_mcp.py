@@ -59,6 +59,7 @@ from web_search import (
     should_scrape, relevance_score,
 )
 from smart_scraper import SmartScraper, scrape_article
+from url_validator import validate_url
 
 
 class LazyBrowserPool:
@@ -195,6 +196,12 @@ class PooledSmartScraper(SmartScraper):
         """Scrape using pooled browser"""
         from web_scraper import ScrapedContent, ContentType
         from bs4 import BeautifulSoup
+        from urllib.parse import urlparse
+
+        # Block non-HTTP schemes before Playwright navigation (prevents file:// access)
+        scheme = urlparse(url).scheme.lower()
+        if scheme not in ('http', 'https'):
+            raise ValueError(f"URL scheme '{scheme}' is not allowed for browser scraping")
 
         browser = _browser_pool.get_browser()
         page = browser.new_page()
@@ -488,7 +495,7 @@ async def handle_web_search(arguments: dict) -> CallToolResult:
             isError=True
         )
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(
         None,
         lambda: search_full(query, num_results, site=site, filetype=filetype,
@@ -517,8 +524,19 @@ async def handle_scrape_url(arguments: dict) -> CallToolResult:
             isError=True
         )
 
+    # SSRF protection: validate URL before any outbound request
+    url_ok, url_reason = validate_url(url)
+    if not url_ok:
+        return CallToolResult(
+            content=[TextContent(
+                type="text",
+                text=json.dumps({"success": False, "error": f"URL blocked: {url_reason}"})
+            )],
+            isError=True
+        )
+
     # Run scraper in thread pool
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def do_scrape():
         scraper = PooledSmartScraper()
@@ -571,7 +589,7 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
             isError=True
         )
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # Step 1: Search
     search_result = await loop.run_in_executor(
@@ -682,10 +700,21 @@ async def handle_extract_urls(arguments: dict) -> CallToolResult:
             isError=True
         )
 
+    # SSRF protection: validate URL before any outbound request
+    url_ok, url_reason = validate_url(url)
+    if not url_ok:
+        return CallToolResult(
+            content=[TextContent(
+                type="text",
+                text=json.dumps({"success": False, "error": f"URL blocked: {url_reason}"})
+            )],
+            isError=True
+        )
+
     from web_scraper import WebScraper, ContentType
     from urllib.parse import urlparse
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def do_extract():
         scraper = WebScraper()

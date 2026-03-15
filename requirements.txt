@@ -20,6 +20,9 @@ duckduckgo-search>=6.0.0
 # CLI interface
 click>=8.1.0
 
+# XML security
+defusedxml>=0.7.1
+
 # Data handling
 python-dateutil>=2.8.0
 

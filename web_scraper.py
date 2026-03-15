@@ -225,6 +225,12 @@ class WebScraper:
         Fetch raw HTML from URL with optional HEAD pre-check and robots.txt respect.
         Returns (html_content, status_code)
         """
+        # SSRF protection: validate URL before any outbound request
+        from url_validator import validate_url
+        url_ok, url_reason = validate_url(url)
+        if not url_ok:
+            return None, 0
+
         # Check robots.txt
         if self.respect_robots and not RobotsCache.can_fetch(url):
             return None, 403

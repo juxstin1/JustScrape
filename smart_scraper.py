@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from web_scraper import WebScraper, ContentType, ScrapedContent, quick_scrape
 from sitemap_registry import SitemapRegistry
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+from url_validator import validate_url as _validate_url
 import json
 import re
 import requests
@@ -66,6 +67,11 @@ class SmartScraper:
         Try source-specific non-browser adapters before static/JS scraping.
         Returns ScrapedContent on adapter success, else None to continue fallback.
         """
+        # SSRF protection: validate URL before any adapter makes outbound requests
+        url_ok, _ = _validate_url(url)
+        if not url_ok:
+            return None
+
         domain = urlparse(url).netloc.lower().replace('www.', '')
         if domain.endswith('reddit.com'):
             return self._scrape_reddit_json(url, content_types)

@@ -11,7 +11,7 @@ Architecture:
 """
 
 import sqlite3
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
@@ -21,6 +21,11 @@ import requests
 import hashlib
 import gzip
 from io import BytesIO
+from url_validator import validate_url as _validate_url
+
+# Safety limits for sitemap processing
+MAX_CHILD_SITEMAPS = 100
+MAX_SITEMAP_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 # Database location - store in user home directory alongside scraper config
@@ -186,6 +191,13 @@ class SitemapRegistry:
         Returns:
             Raw sitemap content as bytes, or None if failed
         """
+        # SSRF protection: validate sitemap URL
+        url_ok, url_reason = _validate_url(sitemap_url)
+        if not url_ok:
+            if verbose:
+                print(f"Blocked sitemap URL ({url_reason}): {sitemap_url}")
+            return None
+
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (compatible; SitemapBot/1.0)',
@@ -194,6 +206,12 @@ class SitemapRegistry:
 
             response = requests.get(sitemap_url, headers=headers, timeout=30)
             response.raise_for_status()
+
+            # Size cap to prevent memory exhaustion
+            if len(response.content) > MAX_SITEMAP_SIZE:
+                if verbose:
+                    print(f"Sitemap too large ({len(response.content)} bytes): {sitemap_url}")
+                return None
 
             # Handle gzipped sitemaps
             if sitemap_url.endswith('.gz'):
@@ -296,6 +314,10 @@ class SitemapRegistry:
         except ET.ParseError as e:
             print(f"Error parsing sitemap XML: {e}")
             return [], []
+        except Exception as e:
+            # Catches defusedxml security exceptions (EntitiesForbidden, etc.)
+            print(f"Blocked unsafe XML content: {e}")
+            return [], []
 
     def _hash_content(self, content: bytes) -> str:
         """
@@ -356,12 +378,16 @@ class SitemapRegistry:
         # Parse the sitemap
         urls, child_sitemaps = self._parse_sitemap(content, sitemap_url)
 
-        # If this is a sitemap index, fetch all child sitemaps
+        # If this is a sitemap index, fetch child sitemaps (capped for safety)
         if child_sitemaps:
-            print(f"Found sitemap index with {len(child_sitemaps)} child sitemaps")
+            capped = child_sitemaps[:MAX_CHILD_SITEMAPS]
+            if len(child_sitemaps) > MAX_CHILD_SITEMAPS:
+                print(f"Found sitemap index with {len(child_sitemaps)} child sitemaps (capped to {MAX_CHILD_SITEMAPS})")
+            else:
+                print(f"Found sitemap index with {len(child_sitemaps)} child sitemaps")
             all_urls = []
 
-            for child_url in child_sitemaps:
+            for child_url in capped:
                 print(f"  Fetching child sitemap: {child_url}")
                 child_content = self._fetch_sitemap(child_url)
 
