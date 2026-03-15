@@ -21,6 +21,19 @@ Layered intelligence web scraper + **MCP Server** that provides free web search 
 - **LLM-Ready Output** - Markdown and plain text formats optimized for AI consumption
 - **Interactive CLI** - Menu-driven interface with batch scraping, data extraction, and clipboard support
 
+## Security
+
+JustScrape includes hardened security for safe operation as an MCP server:
+
+- **SSRF Protection** - All URLs validated before outbound requests; blocks private IPs (10.x, 172.16.x, 192.168.x, 127.x, 169.254.x), non-HTTP schemes (`file://`, `data://`, `javascript://`), and cloud metadata endpoints
+- **XXE Defense** - Sitemap parsing uses `defusedxml` to block XML entity expansion attacks (Billion Laughs) and external entity injection
+- **Browser Isolation** - Each Playwright scrape runs in an isolated browser context (separate cookies, storage, cache) to prevent cross-site data leakage
+- **Response Size Caps** - Streaming HTTP reads with 10MB limit prevent memory exhaustion from oversized responses
+- **Input Validation** - Query length (1000 chars), URL length (2048 chars), and content size (100K chars) are server-side capped
+- **Concurrency Limits** - Global semaphore caps parallel outbound scrapes to prevent DDoS amplification
+- **Sanitized Errors** - Exception details logged to stderr; only generic error messages returned to MCP clients
+- **112 Security Tests** - Covering URL validation, XXE protection, SSRF blocking, adapter isolation, and classification
+
 ## MCP Server (For AI Models)
 
 JustScrape can run as an MCP (Model Context Protocol) server, exposing tools that AI models can use directly.
@@ -250,6 +263,7 @@ Browser mode blocks:
 | httpx[http2] | Async HTTP/2 scraping with connection pooling |
 | beautifulsoup4 | HTML parsing |
 | lxml | Fast HTML parser |
+| defusedxml | XML security (XXE/entity expansion protection) |
 | playwright | Headless browser for JS sites |
 | mcp | MCP server framework |
 | duckduckgo-search | Free web search (default backend) |
@@ -291,6 +305,18 @@ from backends import BraveSearchBackend
 brave = BraveSearchBackend()
 result = brave.search("python tutorial", num_results=5)
 ```
+
+## Source Adapters
+
+JustScrape includes non-browser adapters for sites that are hard to scrape statically:
+
+| Adapter | Method | Sites |
+|---------|--------|-------|
+| Reddit JSON | API | reddit.com (subreddits, threads, comments) |
+| Dev.to API | API | dev.to (articles, markdown content) |
+| GitHub Discussions | HTML | github.com/*/discussions/* |
+| StackExchange API | API | stackoverflow.com, superuser.com, serverfault.com, *.stackexchange.com |
+| StackPrinter | HTML fallback | Stack Exchange (when API fails) |
 
 ## Future Roadmap
 
