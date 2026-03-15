@@ -9,10 +9,11 @@ class TestXXEProtection:
     """Verify sitemap parser is safe against XML attacks."""
 
     def _make_registry(self):
-        """Create an in-memory registry for testing."""
+        """Create a temp registry for testing."""
+        import tempfile, os
         from sitemap_registry import SitemapRegistry
-        registry = SitemapRegistry(db_path=":memory:")
-        return registry
+        tmpdir = tempfile.mkdtemp()
+        return SitemapRegistry(db_path=os.path.join(tmpdir, "test.db"))
 
     def test_normal_sitemap_parses(self):
         registry = self._make_registry()

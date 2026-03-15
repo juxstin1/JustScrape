@@ -22,10 +22,21 @@ import hashlib
 import gzip
 from io import BytesIO
 from url_validator import validate_url as _validate_url
+import os
+import stat
 
 # Safety limits for sitemap processing
 MAX_CHILD_SITEMAPS = 100
 MAX_SITEMAP_SIZE = 50 * 1024 * 1024  # 50 MB
+
+
+def _restrict_file_permissions(path: str):
+    """Restrict file to owner-only read/write on Unix systems."""
+    if os.name != 'nt':
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass
 
 
 # Database location - store in user home directory alongside scraper config
@@ -90,6 +101,8 @@ class SitemapRegistry:
         self.db_path = db_path
         self.staleness_days = staleness_days
         self._init_database()
+        if str(db_path) != ":memory:":
+            _restrict_file_permissions(str(db_path))
 
     def _connect(self):
         """Create a SQLite connection with WAL mode for better concurrency."""

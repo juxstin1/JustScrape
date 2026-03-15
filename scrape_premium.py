@@ -39,6 +39,18 @@ def load_config():
 def save_config(config):
     """Save user preferences"""
     CONFIG_FILE.write_text(json.dumps(config, indent=2))
+    _restrict_file_permissions(CONFIG_FILE)
+
+
+def _restrict_file_permissions(path):
+    """Restrict file to owner-only read/write on Unix systems."""
+    import os
+    import stat
+    if os.name != 'nt':  # Skip on Windows (chmod is limited there)
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+        except OSError:
+            pass
 
 
 def clean_filename(url):

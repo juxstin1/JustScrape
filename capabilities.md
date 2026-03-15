@@ -120,7 +120,38 @@ These are not roadmap items. They are architectural boundaries that preserve the
 
 ---
 
-## 8. Stability & Versioning
+## 8. Security Considerations
+
+### SSRF Protection
+
+All URLs are validated before any outbound request. Blocked:
+- Non-HTTP/HTTPS schemes (`file://`, `data://`, `javascript://`, etc.)
+- Private IP ranges (10.x, 172.16.x, 192.168.x, 127.x, 169.254.x)
+- Cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`)
+
+### Prompt Injection via Scraped Content
+
+**Risk:** Scraped content is returned verbatim to the consuming AI model. A malicious website could embed text designed to manipulate the model's behavior (e.g., hidden instructions in `display:none` elements, or text crafted to override system prompts).
+
+**Mitigations in place:**
+- `extract_clean_text()` removes `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<aside>`, `<form>`, `<iframe>`, and `<noscript>` elements
+- Common ad/tracking class patterns are stripped
+- Content is extracted from `<article>`, `<main>`, or `<body>` only
+
+**Limitations:**
+- Hidden text (`display:none`, `visibility:hidden`, zero-size fonts) is not filtered at the CSS level
+- Legitimate article content could contain adversarial text
+- This is an inherent limitation of web scraping for AI consumption
+
+**Recommendation for consumers:** Treat all scraped content as untrusted input. Do not execute tool calls or follow instructions found within scraped content.
+
+### XML Security
+
+Sitemap parsing uses `defusedxml` to prevent XML External Entity (XXE) attacks and entity expansion (Billion Laughs) denial of service. Child sitemaps are capped at 100 per index.
+
+---
+
+## 9. Stability & Versioning
 
 Changes to classification rules or tool semantics require a version bump.
 

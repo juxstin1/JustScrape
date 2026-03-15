@@ -19,9 +19,19 @@ import threading
 import sqlite3
 import os
 import re
+import stat
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, asdict, field
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+
+
+def _restrict_file_permissions(path: str):
+    """Restrict file to owner-only read/write on Unix systems."""
+    if os.name != 'nt':
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass
 
 
 @dataclass
@@ -139,6 +149,7 @@ class PersistentSearchCache:
         self.ttl = ttl_seconds
         self._lock = threading.Lock()
         self._init_db()
+        _restrict_file_permissions(db_path)
 
     def _connect(self):
         """Create a SQLite connection with WAL mode."""

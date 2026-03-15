@@ -5,11 +5,21 @@ Simple one-level link discovery from source URLs with basic filtering.
 
 import json
 import os
+import stat
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
 from web_scraper import WebScraper
 from bs4 import BeautifulSoup
+
+
+def _restrict_file_permissions(path):
+    """Restrict file to owner-only read/write on Unix systems."""
+    if os.name != 'nt':
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass
 
 
 # Maximum number of discovered URLs to store (prevents unbounded growth)
@@ -75,6 +85,7 @@ class URLDiscovery:
         try:
             with open(self.sources_file, 'w', encoding='utf-8') as f:
                 json.dump(sources, f, indent=2)
+            _restrict_file_permissions(self.sources_file)
         except Exception as e:
             print(f"Error saving sources: {e}")
 
@@ -92,6 +103,7 @@ class URLDiscovery:
         try:
             with open(self.discovered_file, 'w', encoding='utf-8') as f:
                 json.dump(discovered, f, indent=2)
+            _restrict_file_permissions(self.discovered_file)
         except Exception as e:
             print(f"Error saving discovered URLs: {e}")
 
