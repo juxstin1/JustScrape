@@ -82,7 +82,7 @@ def copy_to_clipboard(text):
         import pyperclip
         pyperclip.copy(text)
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -226,12 +226,7 @@ def scrape_single(config):
     if action == 3:  # Show
         preview_content(content, 20)
     
-    # Ask if they want to do another
-    click.echo()
-    if click.confirm("Scrape another URL?", default=False):
-        scrape_single(config)
-    else:
-        click.echo("\n✨ Done!\n")
+    click.echo("\n✨ Done!\n")
 
 
 def scrape_batch(config):
@@ -291,7 +286,7 @@ def scrape_batch(config):
                     filepath = output_path / filename
                     filepath.write_text(content, encoding='utf-8')
                     success_count += 1
-            except:
+            except Exception:
                 pass
     
     click.echo()
@@ -472,7 +467,7 @@ def sitemap_scrape_menu(config):
 
                     # Mark as scraped
                     registry.mark_scraped(url)
-            except:
+            except Exception:
                 pass
 
     click.echo()
@@ -613,9 +608,7 @@ def sitemap_registry_menu(config):
 
         click.echo()
 
-    if choice != 6:
-        if click.confirm("Return to sitemap registry menu?", default=True):
-            sitemap_registry_menu(config)
+    # Return to main menu (no recursion)
 
 
 def url_discovery_menu(config):
@@ -791,9 +784,7 @@ def url_discovery_menu(config):
 
         click.echo()
 
-    if choice != 0:
-        if click.confirm("Return to URL discovery menu?", default=True):
-            url_discovery_menu(config)
+    # Return to main menu (no recursion)
 
 
 def settings_menu(config):
@@ -827,7 +818,7 @@ def settings_menu(config):
         success("Reset to defaults")
 
     click.echo()
-    main()
+    # Return to main menu (no recursion)
 
 
 if __name__ == '__main__':

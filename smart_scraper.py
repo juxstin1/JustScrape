@@ -811,17 +811,32 @@ class SmartScraper:
         )
 
         if not use_js:
-            # Try static scraping first
-            result = self.static_scraper.scrape(url, content_types)
-
-            # Multi-signal check: do we need JS?
-            # Get raw HTML for signal analysis
+            # Fetch raw HTML once (used for both content extraction and JS detection)
             raw_html = None
             try:
                 raw_html, _ = self.static_scraper.fetch(url)
             except Exception:
                 pass
 
+            # Extract content from the fetched HTML
+            if raw_html:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(raw_html, 'html.parser')
+                result = ScrapedContent(url=url, status_code=200, scrape_method='static')
+                for ct in content_types:
+                    if ct == ContentType.CLEAN_TEXT:
+                        result.content = self.static_scraper.extract_clean_text(raw_html, soup)
+                    elif ct == ContentType.METADATA:
+                        result.metadata = self.static_scraper.extract_metadata(soup)
+                        result.title = result.metadata.get('title')
+                    elif ct == ContentType.LINKS:
+                        result.links = self.static_scraper.extract_links(soup, url)
+                    elif ct == ContentType.IMAGES:
+                        result.images = self.static_scraper.extract_images(soup, url)
+            else:
+                result = ScrapedContent(url=url, status_code=0)
+
+            # Multi-signal check: do we need JS?
             if not self._needs_javascript(raw_html, result.content, url):
                 return result
 

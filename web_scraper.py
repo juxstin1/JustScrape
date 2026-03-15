@@ -169,13 +169,13 @@ class _ScraperDomainLimiter:
     def wait(self, url: str):
         domain = urlparse(url).netloc.lower()
         with self._lock:
-            last = self._domains.get(domain, 0.0)
-            elapsed = time.time() - last
-            wait_time = self.default_delay - elapsed
+            now = time.time()
+            next_allowed = self._domains.get(domain, 0.0)
+            wait_time = max(0, next_allowed - now)
+            # Reserve our slot atomically before releasing lock
+            self._domains[domain] = now + wait_time + self.default_delay
         if wait_time > 0:
             time.sleep(wait_time)
-        with self._lock:
-            self._domains[domain] = time.time()
 
 _scraper_limiter = _ScraperDomainLimiter(default_delay=1.0)
 
@@ -371,7 +371,7 @@ class WebScraper:
             try:
                 data = json.loads(script.string)
                 structured['json_ld'].append(data)
-            except:
+            except Exception:
                 pass
         
         return structured

@@ -74,7 +74,7 @@ class SearchCache:
     def _make_key(self, query: str, num_results: int, date_range: Optional[str] = None) -> str:
         """Create cache key from query params"""
         raw = f"{query.lower().strip()}:{num_results}:{(date_range or '').lower()}"
-        return hashlib.md5(raw.encode()).hexdigest()
+        return hashlib.sha256(raw.encode()).hexdigest()
 
     def get(self, query: str, num_results: int, date_range: Optional[str] = None) -> Optional[SearchResponse]:
         """Get cached result if exists and not expired"""
@@ -158,7 +158,7 @@ class PersistentSearchCache:
 
     def _make_key(self, query: str, num_results: int, date_range: Optional[str] = None) -> str:
         raw = f"{query.lower().strip()}:{num_results}:{(date_range or '').lower()}"
-        return hashlib.md5(raw.encode()).hexdigest()
+        return hashlib.sha256(raw.encode()).hexdigest()
 
     def get(self, query: str, num_results: int, date_range: Optional[str] = None) -> Optional[SearchResponse]:
         """Get from persistent cache if not expired"""
@@ -285,14 +285,13 @@ class PerDomainRateLimiter:
         with self._lock:
             state = self._get_state(domain)
             now = time.time()
-            elapsed = now - state["last_request"]
-            wait_time = state["current_delay"] - elapsed
+            next_allowed = state["last_request"] + state["current_delay"]
+            wait_time = max(0, next_allowed - now)
+            # Reserve our slot atomically before releasing lock
+            state["last_request"] = now + wait_time
         # Sleep outside the lock
         if wait_time > 0:
             time.sleep(wait_time)
-        with self._lock:
-            state = self._get_state(domain)
-            state["last_request"] = time.time()
 
     def success(self, url: str = None):
         """Reset delay after successful request"""
@@ -414,8 +413,8 @@ def should_scrape(url: str, snippet: str = "") -> Tuple[bool, str]:
         ):
             return True, "adapter:stackexchange_api"
 
-        # Skip known-blocked domains
-        if domain in KNOWN_BLOCKED_DOMAINS or any(d in domain for d in KNOWN_BLOCKED_DOMAINS):
+        # Skip known-blocked domains (exact match or subdomain match)
+        if domain in KNOWN_BLOCKED_DOMAINS or any(domain.endswith('.' + d) for d in KNOWN_BLOCKED_DOMAINS):
             return False, f"blocked_domain:{domain}"
 
         # Skip login/signup/legal pages

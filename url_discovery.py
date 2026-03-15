@@ -223,7 +223,7 @@ class URLDiscovery:
                     title_tag = soup.find('title')
                     if title_tag and title_tag.string:
                         title = title_tag.string.strip()
-                except:
+                except Exception:
                     pass
 
                 # Store discovered URLs with metadata

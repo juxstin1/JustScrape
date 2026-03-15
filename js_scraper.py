@@ -24,16 +24,15 @@ class ScraperConfig:
         if self.block_resources is None:
             # Default blocked resources to speed up scraping
             self.block_resources = [
-                '*google-analytics.com*',
-                '*googletagmanager.com*',
-                '*doubleclick.net*',
-                '*facebook.com/tr*',
-                '*facebook.net*',
-                '*twitter.com/i/adsct*',
-                '*.ads.*',
-                '*advertising*',
-                '*ad-*.js',
-                '*analytics*.js'
+                'google-analytics.com',
+                'googletagmanager.com',
+                'doubleclick.net',
+                'facebook.com/tr',
+                'facebook.net',
+                'twitter.com/i/adsct',
+                '.ads.',
+                'advertising',
+                'analytics',
             ]
 
 

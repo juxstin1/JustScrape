@@ -135,14 +135,14 @@ class LazyBrowserPool:
             if self._browser:
                 try:
                     self._browser.close()
-                except:
+                except Exception:
                     pass
                 self._browser = None
 
             if self._playwright:
                 try:
                     self._playwright.stop()
-                except:
+                except Exception:
                     pass
                 self._playwright = None
 
