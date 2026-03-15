@@ -31,6 +31,7 @@ from web_scraper import ScrapedContent, ContentType
 
 # Per-domain concurrency semaphores
 _domain_semaphores: Dict[str, asyncio.Semaphore] = {}
+_MAX_DOMAIN_SEMAPHORES = 500
 _global_semaphore = asyncio.Semaphore(10)  # max 10 concurrent requests total
 
 
@@ -38,6 +39,10 @@ def _get_domain_semaphore(url: str, max_per_domain: int = 2) -> asyncio.Semaphor
     """Get or create a per-domain concurrency limiter."""
     domain = urlparse(url).netloc.lower()
     if domain not in _domain_semaphores:
+        # Evict oldest if at capacity
+        if len(_domain_semaphores) >= _MAX_DOMAIN_SEMAPHORES:
+            oldest = next(iter(_domain_semaphores))
+            del _domain_semaphores[oldest]
         _domain_semaphores[domain] = asyncio.Semaphore(max_per_domain)
     return _domain_semaphores[domain]
 

@@ -140,21 +140,26 @@ class PersistentSearchCache:
         self._lock = threading.Lock()
         self._init_db()
 
+    def _connect(self):
+        """Create a SQLite connection with WAL mode."""
+        conn = sqlite3.connect(self.db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
     def _init_db(self):
         with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS search_cache (
-                    cache_key TEXT PRIMARY KEY,
-                    query TEXT NOT NULL,
-                    num_results INTEGER NOT NULL,
-                    response_json TEXT NOT NULL,
-                    created_at REAL NOT NULL
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_created ON search_cache(created_at)")
-            conn.commit()
-            conn.close()
+            with self._connect() as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS search_cache (
+                        cache_key TEXT PRIMARY KEY,
+                        query TEXT NOT NULL,
+                        num_results INTEGER NOT NULL,
+                        response_json TEXT NOT NULL,
+                        created_at REAL NOT NULL
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_created ON search_cache(created_at)")
+                conn.commit()
 
     def _make_key(self, query: str, num_results: int, date_range: Optional[str] = None) -> str:
         raw = f"{query.lower().strip()}:{num_results}:{(date_range or '').lower()}"
@@ -165,44 +170,41 @@ class PersistentSearchCache:
         key = self._make_key(query, num_results, date_range)
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.execute(
-                    "SELECT response_json, created_at FROM search_cache WHERE cache_key = ?",
-                    (key,)
-                )
-                row = cursor.fetchone()
-                conn.close()
+                import json as _json
+                with self._connect() as conn:
+                    cursor = conn.execute(
+                        "SELECT response_json, created_at FROM search_cache WHERE cache_key = ?",
+                        (key,)
+                    )
+                    row = cursor.fetchone()
 
-                if row:
-                    response_json, created_at = row
-                    if time.time() - created_at < self.ttl:
-                        data = __import__('json').loads(response_json)
-                        if data.get("total_results", 0) == 0:
-                            # Self-heal poisoned persistent entries.
-                            conn = sqlite3.connect(self.db_path)
-                            conn.execute("DELETE FROM search_cache WHERE cache_key = ?", (key,))
-                            conn.commit()
-                            conn.close()
-                            return None
-                        results = [
-                            SearchResult(
-                                position=r["position"],
-                                title=r["title"],
-                                url=r["url"],
-                                snippet=r["snippet"],
-                                source=r.get("source", "duckduckgo")
+                    if row:
+                        response_json, created_at = row
+                        if time.time() - created_at < self.ttl:
+                            data = _json.loads(response_json)
+                            if data.get("total_results", 0) == 0:
+                                conn.execute("DELETE FROM search_cache WHERE cache_key = ?", (key,))
+                                conn.commit()
+                                return None
+                            results = [
+                                SearchResult(
+                                    position=r["position"],
+                                    title=r["title"],
+                                    url=r["url"],
+                                    snippet=r["snippet"],
+                                    source=r.get("source", "duckduckgo")
+                                )
+                                for r in data.get("results", [])
+                            ]
+                            return SearchResponse(
+                                query=data["query"],
+                                results=results,
+                                total_results=data["total_results"],
+                                search_time_ms=0,
+                                source=data.get("source", "duckduckgo"),
+                                success=True,
+                                cached=True
                             )
-                            for r in data.get("results", [])
-                        ]
-                        return SearchResponse(
-                            query=data["query"],
-                            results=results,
-                            total_results=data["total_results"],
-                            search_time_ms=0,
-                            source=data.get("source", "duckduckgo"),
-                            success=True,
-                            cached=True
-                        )
             except Exception:
                 pass
         return None
@@ -218,15 +220,13 @@ class PersistentSearchCache:
 
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
-                conn.execute(
-                    "INSERT OR REPLACE INTO search_cache (cache_key, query, num_results, response_json, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (key, query.lower().strip(), num_results, response_json, time.time())
-                )
-                # Prune expired entries occasionally
-                conn.execute("DELETE FROM search_cache WHERE created_at < ?", (time.time() - self.ttl,))
-                conn.commit()
-                conn.close()
+                with self._connect() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO search_cache (cache_key, query, num_results, response_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (key, query.lower().strip(), num_results, response_json, time.time())
+                    )
+                    conn.execute("DELETE FROM search_cache WHERE created_at < ?", (time.time() - self.ttl,))
+                    conn.commit()
             except Exception:
                 pass
 
@@ -234,10 +234,9 @@ class PersistentSearchCache:
         """Clear persistent cache"""
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
-                conn.execute("DELETE FROM search_cache")
-                conn.commit()
-                conn.close()
+                with self._connect() as conn:
+                    conn.execute("DELETE FROM search_cache")
+                    conn.commit()
             except Exception:
                 pass
 
@@ -245,23 +244,26 @@ class PersistentSearchCache:
         """Get persistent cache statistics"""
         with self._lock:
             try:
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.execute("SELECT COUNT(*) FROM search_cache WHERE created_at > ?", (time.time() - self.ttl,))
-                count = cursor.fetchone()[0]
-                conn.close()
-                return {"size": count, "ttl_seconds": self.ttl, "db_path": self.db_path}
+                with self._connect() as conn:
+                    count = conn.execute(
+                        "SELECT COUNT(*) FROM search_cache WHERE created_at > ?",
+                        (time.time() - self.ttl,)
+                    ).fetchone()[0]
+                return {"size": count, "ttl_seconds": self.ttl}
             except Exception:
-                return {"size": 0, "ttl_seconds": self.ttl, "db_path": self.db_path}
+                return {"size": 0, "ttl_seconds": self.ttl}
 
 
 class PerDomainRateLimiter:
     """Rate limiter that tracks delays per domain instead of globally"""
 
+    _MAX_DOMAINS = 1000
+
     def __init__(self, default_delay: float = 1.0, max_delay: float = 30.0, backoff_factor: float = 2.0):
         self.default_delay = default_delay
         self.max_delay = max_delay
         self.backoff_factor = backoff_factor
-        self._domains: Dict[str, Dict] = {}  # domain -> {last_request, current_delay, errors}
+        self._domains: Dict[str, Dict] = {}
         self._lock = threading.Lock()
 
     def _get_domain(self, url: str) -> str:
@@ -272,6 +274,10 @@ class PerDomainRateLimiter:
 
     def _get_state(self, domain: str) -> Dict:
         if domain not in self._domains:
+            # Evict oldest if at capacity
+            if len(self._domains) >= self._MAX_DOMAINS:
+                oldest = min(self._domains, key=lambda d: self._domains[d]["last_request"])
+                del self._domains[oldest]
             self._domains[domain] = {
                 "last_request": 0.0,
                 "current_delay": self.default_delay,
@@ -485,6 +491,17 @@ class WebSearch:
 
     # SearXNG instance URL (Docker: docker run -d --name searxng -p 8080:8080 searxng/searxng)
     SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8080")
+
+    # Warn if SearXNG is configured to a non-localhost URL over HTTP
+    _searxng_parsed = __import__('urllib.parse', fromlist=['urlparse']).urlparse(SEARXNG_URL)
+    if (_searxng_parsed.hostname not in ('localhost', '127.0.0.1', '::1', None)
+            and _searxng_parsed.scheme == 'http'):
+        import warnings
+        warnings.warn(
+            f"SEARXNG_URL uses unencrypted HTTP for non-localhost host: {SEARXNG_URL}. "
+            "Search queries will be transmitted in cleartext. Use https:// for remote hosts.",
+            stacklevel=1
+        )
 
     def __init__(self, timeout: int = 10, use_cache: bool = True):
         """

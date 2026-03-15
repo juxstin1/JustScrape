@@ -24,7 +24,10 @@ CONFIG_FILE = Path.home() / ".scraper_config.json"
 def load_config():
     """Load user preferences"""
     if CONFIG_FILE.exists():
-        return json.loads(CONFIG_FILE.read_text())
+        try:
+            return json.loads(CONFIG_FILE.read_text())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass  # Fall through to defaults
     return {
         "default_output_dir": str(Path.home() / "Downloads" / "scraped"),
         "auto_save": True,
@@ -744,7 +747,8 @@ def url_discovery_menu(config):
             if click.confirm("Save search results to file?", default=False):
                 output_dir = Path(config['default_output_dir'])
                 output_dir.mkdir(parents=True, exist_ok=True)
-                output_file = output_dir / f"search_{query.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                safe_query = re.sub(r'[^\w\s-]', '', query).strip().replace(' ', '_')
+                output_file = output_dir / f"search_{safe_query}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 output_file.write_text('\n'.join(matches), encoding='utf-8')
                 success(f"Saved to: {output_file}")
         else:

@@ -12,6 +12,9 @@ from web_scraper import WebScraper
 from bs4 import BeautifulSoup
 
 
+# Maximum number of discovered URLs to store (prevents unbounded growth)
+MAX_DISCOVERED_URLS = 100000
+
 # Junk URL patterns to filter out (ads, trackers, social widgets)
 JUNK_PATTERNS = [
     'doubleclick.net',
@@ -231,6 +234,10 @@ class URLDiscovery:
                 new_urls = 0
 
                 for url in filtered_links:
+                    if len(discovered) >= MAX_DISCOVERED_URLS:
+                        if verbose:
+                            print(f"  Hit max URL limit ({MAX_DISCOVERED_URLS}), stopping")
+                        break
                     if url not in discovered:
                         discovered[url] = {
                             'discovered_from': source,

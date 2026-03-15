@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import tempfile
 import time
@@ -317,8 +318,8 @@ def test_search_cache_date_range_keys_and_empty_miss():
 
 
 def test_persistent_cache_date_range_keys_and_empty_miss():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = f"{tmpdir}/cache.db"
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        db_path = os.path.join(tmpdir, "cache.db")
         cache = PersistentSearchCache(db_path=db_path, ttl_seconds=3600)
 
         response = SearchResponse(

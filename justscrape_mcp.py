@@ -504,11 +504,11 @@ async def handle_web_search(arguments: dict) -> CallToolResult:
     date_range = arguments.get("date_range")
     exclude_sites = arguments.get("exclude_sites")
 
-    if not query:
+    if not query or len(query) > 1000:
         return CallToolResult(
             content=[TextContent(
                 type="text",
-                text=json.dumps({"success": False, "error": "Query is required"})
+                text=json.dumps({"success": False, "error": "Query is required (max 1000 chars)"})
             )],
             isError=True
         )
@@ -533,11 +533,11 @@ async def handle_scrape_url(arguments: dict) -> CallToolResult:
     url = arguments.get("url", "")
     include_links = arguments.get("include_links", False)
 
-    if not url:
+    if not url or len(url) > 2048:
         return CallToolResult(
             content=[TextContent(
                 type="text",
-                text=json.dumps({"success": False, "error": "URL is required"})
+                text=json.dumps({"success": False, "error": "URL is required (max 2048 chars)"})
             )],
             isError=True
         )
@@ -596,11 +596,11 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
     """
     query = arguments.get("query", "")
     num_results = min(arguments.get("num_results", 3), 5)
-    max_content_length = arguments.get("max_content_length", 5000)
+    max_content_length = min(arguments.get("max_content_length", 5000), 100000)
     site = arguments.get("site")
     date_range = arguments.get("date_range")
 
-    if not query:
+    if not query or len(query) > 1000:
         return CallToolResult(
             content=[TextContent(
                 type="text",

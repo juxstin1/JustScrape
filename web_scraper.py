@@ -59,7 +59,8 @@ class RobotsCache:
     """Cache robots.txt per domain to avoid wasting time on disallowed paths."""
     _cache: Dict[str, RobotFileParser] = {}
     _lock = threading.Lock()
-    _user_agent = "Mozilla/5.0"
+    _user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    _MAX_SIZE = 500
 
     @classmethod
     def can_fetch(cls, url: str) -> bool:
@@ -68,13 +69,16 @@ class RobotsCache:
             domain = urlparse(url).netloc.lower()
             with cls._lock:
                 if domain not in cls._cache:
+                    # Evict oldest entry if at capacity
+                    if len(cls._cache) >= cls._MAX_SIZE:
+                        oldest = next(iter(cls._cache))
+                        del cls._cache[oldest]
                     rp = RobotFileParser()
                     robots_url = f"https://{domain}/robots.txt"
                     rp.set_url(robots_url)
                     try:
                         rp.read()
                     except Exception:
-                        # If we can't read robots.txt, allow by default
                         cls._cache[domain] = None
                         return True
                     cls._cache[domain] = rp
@@ -161,18 +165,23 @@ def head_pre_check(url: str, session: requests.Session = None, timeout: int = 5)
 
 class _ScraperDomainLimiter:
     """Per-domain rate limiting for the web scraper."""
+    _MAX_DOMAINS = 1000
+
     def __init__(self, default_delay: float = 1.0):
         self.default_delay = default_delay
-        self._domains: Dict[str, float] = {}  # domain -> last_request_time
+        self._domains: Dict[str, float] = {}
         self._lock = threading.Lock()
 
     def wait(self, url: str):
         domain = urlparse(url).netloc.lower()
         with self._lock:
+            # Evict oldest if at capacity
+            if domain not in self._domains and len(self._domains) >= self._MAX_DOMAINS:
+                oldest = min(self._domains, key=self._domains.get)
+                del self._domains[oldest]
             now = time.time()
             next_allowed = self._domains.get(domain, 0.0)
             wait_time = max(0, next_allowed - now)
-            # Reserve our slot atomically before releasing lock
             self._domains[domain] = now + wait_time + self.default_delay
         if wait_time > 0:
             time.sleep(wait_time)

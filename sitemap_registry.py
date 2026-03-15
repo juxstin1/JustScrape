@@ -91,53 +91,55 @@ class SitemapRegistry:
         self.staleness_days = staleness_days
         self._init_database()
 
+    def _connect(self):
+        """Create a SQLite connection with WAL mode for better concurrency."""
+        conn = sqlite3.connect(self.db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
     def _init_database(self):
         """Create database tables if they don't exist"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with self._connect() as conn:
+            cursor = conn.cursor()
 
-        # Sitemaps table - stores sitemap metadata
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sitemaps (
-                domain TEXT PRIMARY KEY,
-                sitemap_url TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                last_fetched TIMESTAMP NOT NULL,
-                url_count INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'pending',
-                error_message TEXT
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sitemaps (
+                    domain TEXT PRIMARY KEY,
+                    sitemap_url TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    last_fetched TIMESTAMP NOT NULL,
+                    url_count INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'pending',
+                    error_message TEXT
+                )
+            """)
 
-        # URLs table - stores individual URLs from sitemaps
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sitemap_urls (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL,
-                domain TEXT NOT NULL,
-                last_modified TEXT,
-                priority REAL,
-                change_frequency TEXT,
-                scraped BOOLEAN DEFAULT 0,
-                scraped_at TIMESTAMP,
-                UNIQUE(url),
-                FOREIGN KEY (domain) REFERENCES sitemaps(domain) ON DELETE CASCADE
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sitemap_urls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    last_modified TEXT,
+                    priority REAL,
+                    change_frequency TEXT,
+                    scraped BOOLEAN DEFAULT 0,
+                    scraped_at TIMESTAMP,
+                    UNIQUE(url),
+                    FOREIGN KEY (domain) REFERENCES sitemaps(domain) ON DELETE CASCADE
+                )
+            """)
 
-        # Create indexes for fast lookups
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_domain
-            ON sitemap_urls(domain)
-        """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_domain
+                ON sitemap_urls(domain)
+            """)
 
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_scraped
-            ON sitemap_urls(scraped, domain)
-        """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scraped
+                ON sitemap_urls(scraped, domain)
+            """)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
 
     def _extract_domain(self, url: str) -> str:
         """
@@ -402,62 +404,53 @@ class SitemapRegistry:
             return False
 
         # Store in database
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         try:
-            # Insert or update sitemap metadata
-            cursor.execute("""
-                INSERT OR REPLACE INTO sitemaps
-                (domain, sitemap_url, content_hash, last_fetched, url_count, status)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                domain,
-                sitemap_url,
-                content_hash,
-                datetime.now(),
-                len(urls),
-                'success'
-            ))
+            with self._connect() as conn:
+                cursor = conn.cursor()
 
-            # Insert URLs (ignore duplicates)
-            for url_obj in urls:
                 cursor.execute("""
-                    INSERT OR IGNORE INTO sitemap_urls
-                    (url, domain, last_modified, priority, change_frequency)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO sitemaps
+                    (domain, sitemap_url, content_hash, last_fetched, url_count, status)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, (
-                    url_obj.url,
-                    url_obj.domain,
-                    url_obj.last_modified,
-                    url_obj.priority,
-                    url_obj.change_frequency
+                    domain,
+                    sitemap_url,
+                    content_hash,
+                    datetime.now(),
+                    len(urls),
+                    'success'
                 ))
 
-            conn.commit()
-            print(f"✓ Stored {len(urls)} URLs from {domain}")
-            return True
+                for url_obj in urls:
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO sitemap_urls
+                        (url, domain, last_modified, priority, change_frequency)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        url_obj.url,
+                        url_obj.domain,
+                        url_obj.last_modified,
+                        url_obj.priority,
+                        url_obj.change_frequency
+                    ))
+
+                conn.commit()
+                print(f"✓ Stored {len(urls)} URLs from {domain}")
+                return True
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            conn.rollback()
             return False
-        finally:
-            conn.close()
 
     def _mark_failed(self, domain: str, error: str):
         """Mark a domain as failed to fetch"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            INSERT OR REPLACE INTO sitemaps
-            (domain, sitemap_url, content_hash, last_fetched, status, error_message)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (domain, '', '', datetime.now(), 'failed', error))
-
-        conn.commit()
-        conn.close()
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO sitemaps
+                (domain, sitemap_url, content_hash, last_fetched, status, error_message)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (domain, '', '', datetime.now(), 'failed', error))
+            conn.commit()
 
     def has_sitemap(self, domain: str) -> bool:
         """
@@ -471,15 +464,11 @@ class SitemapRegistry:
         """
         domain = self._extract_domain(domain)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT status FROM sitemaps WHERE domain = ?
-        """, (domain,))
-
-        result = cursor.fetchone()
-        conn.close()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT status FROM sitemaps WHERE domain = ?", (domain,)
+            )
+            result = cursor.fetchone()
 
         return result is not None and result[0] == 'success'
 
@@ -495,15 +484,11 @@ class SitemapRegistry:
         """
         domain = self._extract_domain(domain)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT last_fetched FROM sitemaps WHERE domain = ?
-        """, (domain,))
-
-        result = cursor.fetchone()
-        conn.close()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT last_fetched FROM sitemaps WHERE domain = ?", (domain,)
+            )
+            result = cursor.fetchone()
 
         if not result:
             return True
@@ -534,25 +519,21 @@ class SitemapRegistry:
         """
         domain = self._extract_domain(domain)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         query = "SELECT url FROM sitemap_urls WHERE domain = ?"
         params = [domain]
 
         if unscraped_only:
             query += " AND scraped = 0"
 
-        # Order by priority (high to low), then by URL
         query += " ORDER BY priority DESC, url ASC"
 
         if limit:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
-        cursor.execute(query, params)
-        results = cursor.fetchall()
-        conn.close()
+        with self._connect() as conn:
+            cursor = conn.execute(query, params)
+            results = cursor.fetchall()
 
         return [row[0] for row in results]
 
@@ -563,17 +544,12 @@ class SitemapRegistry:
         Args:
             url: URL that was scraped
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            UPDATE sitemap_urls
-            SET scraped = 1, scraped_at = ?
-            WHERE url = ?
-        """, (datetime.now(), url))
-
-        conn.commit()
-        conn.close()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sitemap_urls SET scraped = 1, scraped_at = ? WHERE url = ?",
+                (datetime.now(), url)
+            )
+            conn.commit()
 
     def get_sitemap_info(self, domain: str) -> Optional[SitemapInfo]:
         """
@@ -587,17 +563,13 @@ class SitemapRegistry:
         """
         domain = self._extract_domain(domain)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT domain, sitemap_url, content_hash, last_fetched,
-                   url_count, status, error_message
-            FROM sitemaps WHERE domain = ?
-        """, (domain,))
-
-        result = cursor.fetchone()
-        conn.close()
+        with self._connect() as conn:
+            cursor = conn.execute("""
+                SELECT domain, sitemap_url, content_hash, last_fetched,
+                       url_count, status, error_message
+                FROM sitemaps WHERE domain = ?
+            """, (domain,))
+            result = cursor.fetchone()
 
         if not result:
             return None
@@ -619,12 +591,9 @@ class SitemapRegistry:
         Returns:
             List of domain strings
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT domain FROM sitemaps ORDER BY domain")
-        results = cursor.fetchall()
-        conn.close()
+        with self._connect() as conn:
+            cursor = conn.execute("SELECT domain FROM sitemaps ORDER BY domain")
+            results = cursor.fetchall()
 
         return [row[0] for row in results]
 
@@ -635,22 +604,16 @@ class SitemapRegistry:
         Returns:
             Dictionary with stats about the registry
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Count sitemaps
-        cursor.execute("SELECT COUNT(*) FROM sitemaps WHERE status = 'success'")
-        sitemap_count = cursor.fetchone()[0]
-
-        # Count total URLs
-        cursor.execute("SELECT COUNT(*) FROM sitemap_urls")
-        url_count = cursor.fetchone()[0]
-
-        # Count scraped URLs
-        cursor.execute("SELECT COUNT(*) FROM sitemap_urls WHERE scraped = 1")
-        scraped_count = cursor.fetchone()[0]
-
-        conn.close()
+        with self._connect() as conn:
+            sitemap_count = conn.execute(
+                "SELECT COUNT(*) FROM sitemaps WHERE status = 'success'"
+            ).fetchone()[0]
+            url_count = conn.execute(
+                "SELECT COUNT(*) FROM sitemap_urls"
+            ).fetchone()[0]
+            scraped_count = conn.execute(
+                "SELECT COUNT(*) FROM sitemap_urls WHERE scraped = 1"
+            ).fetchone()[0]
 
         return {
             'total_sitemaps': sitemap_count,
