@@ -14,8 +14,8 @@
 
 ### Relevance Ranking
 
-- [ ] **RANK-01**: System scores search results by source authority (domain-based tier map, query-type aware)
-- [ ] **RANK-02**: System applies freshness weighting for time-sensitive queries (date extraction + decay)
+- [x] **RANK-01**: System scores search results by source authority (domain-based tier map, query-type aware)
+- [x] **RANK-02**: System applies freshness weighting for time-sensitive queries (date extraction + decay)
 - [ ] **RANK-03**: System re-ranks results using neural cross-encoder semantic scoring (optional dependency)
 - [ ] **RANK-04**: System preserves original search position as one signal in composite re-ranking
 
@@ -69,8 +69,8 @@
 | QUERY-02 | Phase 1 | Pending |
 | QUERY-03 | Phase 1 | Pending |
 | QUERY-04 | Phase 1 | Pending |
-| RANK-01 | Phase 1 | Pending |
-| RANK-02 | Phase 1 | Pending |
+| RANK-01 | Phase 1 | Complete |
+| RANK-02 | Phase 1 | Complete |
 | RANK-03 | Phase 3 | Pending |
 | RANK-04 | Phase 2 | Pending |
 | EXTRACT-01 | Phase 1 | Pending |

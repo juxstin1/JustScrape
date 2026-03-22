@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01-PLAN.md — QueryAnalyzer: intent classification, query expansion, decomposition, entity extraction
 - [x] 01-02-PLAN.md — ResultReranker: authority scoring with per-query-type maps, freshness weighting
-- [ ] 01-03-PLAN.md — SnippetExtractor: trafilatura extraction, hybrid chunking, BM25+TF-IDF scoring, sentence matching
+- [x] 01-03-PLAN.md — SnippetExtractor: trafilatura extraction, hybrid chunking, BM25+TF-IDF scoring, sentence matching
 
 ### Phase 2: Pipeline Integration
 **Goal**: End-to-end improved search quality is live; `search_and_scrape` returns structured snippets with scores and provenance metadata without any change to MCP tool signatures
