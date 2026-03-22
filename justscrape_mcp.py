@@ -698,6 +698,7 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
         )
 
     loop = asyncio.get_running_loop()
+    _cached_search_result = None  # Preserve for fallback reuse
 
     try:
         # Step 1: Analyze query
@@ -721,6 +722,8 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
                 ],
                 isError=True,
             )
+
+        _cached_search_result = search_result  # Save for fallback reuse
 
         # Step 3: Rerank results before filtering
         search_results_as_dicts = [
@@ -788,8 +791,15 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
                     if snippets and len(snippets) > 0:
                         best_snippet = snippets[0]
                     else:
-                        # Fallback: create minimal snippet from truncated content
+                        # Detect JS-only content — don't return raw JavaScript as snippet
                         fallback_text = full_content[:500] if full_content else ""
+                        _js_indicators = ("var ", "function(", "(function(", "window.", "document.", "<!doctype", "<?xml")
+                        is_js_garbage = fallback_text and any(
+                            fallback_text.strip().lower().startswith(sig) for sig in _js_indicators
+                        )
+                        if is_js_garbage:
+                            fallback_text = ""
+
                         best_snippet = ExtractedSnippet(
                             text=fallback_text,
                             chunk_index=0,
@@ -874,6 +884,9 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
             "search_cached": search_result.get("cached", False),
         }
 
+        if not enriched_results and skipped:
+            response["note"] = "All search results were filtered (blocked domains or unscrapeable)"
+
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(response, indent=2))]
         )
@@ -887,16 +900,19 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
             file=sys.stderr,
         )
 
-        # Old behavior: search -> pre-filter -> scrape -> relevance_score
-        search_result = await loop.run_in_executor(
-            None,
-            lambda: search_full(
-                query,
-                num_results + 3,
-                site=site,
-                date_range=date_range,
-            ),
-        )
+        # Reuse search result from the try block if available, else re-fetch
+        if _cached_search_result is not None:
+            search_result = _cached_search_result
+        else:
+            search_result = await loop.run_in_executor(
+                None,
+                lambda: search_full(
+                    query,
+                    num_results + 3,
+                    site=site,
+                    date_range=date_range,
+                ),
+            )
 
         if not search_result.get("success", False):
             return CallToolResult(

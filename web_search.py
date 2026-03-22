@@ -684,11 +684,20 @@ class WebSearch:
             data = resp.json()
             raw_results = data.get("results", [])
             results = []
-            for i, r in enumerate(raw_results[:num_results]):
+            seen_urls = set()
+            for r in raw_results:
+                url = r.get("url", "")
+                # Deduplicate URLs (SearXNG can return same URL from multiple engines)
+                normalized = url.rstrip("/").lower()
+                if normalized in seen_urls or not url:
+                    continue
+                seen_urls.add(normalized)
+                if len(results) >= num_results:
+                    break
                 results.append(SearchResult(
-                    position=i + 1,
+                    position=len(results) + 1,
                     title=r.get("title", ""),
-                    url=r.get("url", ""),
+                    url=url,
                     snippet=r.get("content", ""),
                     source=f"searxng:{r.get('engine', 'unknown')}",
                 ))

@@ -372,7 +372,11 @@ class SnippetExtractor:
             List of ExtractedSnippet sorted by score descending. Empty list if
             extraction produces no text or no relevant chunks found.
         """
-        text = self.extract_text(html, url=url)
+        # Detect if input is already plain text (no HTML tags) — skip trafilatura
+        if html and "<" not in html[:1000]:
+            text = html
+        else:
+            text = self.extract_text(html, url=url)
         if not text:
             return []
 

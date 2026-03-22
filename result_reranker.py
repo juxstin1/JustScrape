@@ -10,6 +10,7 @@ first, reducing wasted scraping on low-value pages.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -208,23 +209,58 @@ class ResultReranker:
             netloc = netloc[4:]
         return netloc
 
-    @staticmethod
-    def _base_domain(domain: str) -> str:
-        """Return the last two labels of *domain*, e.g. docs.python.org → python.org."""
+    # Known two-label TLDs where base domain needs 3 labels
+    _CC_SLDS = frozenset({
+        "co.uk", "org.uk", "gov.uk", "ac.uk", "com.au", "org.au", "gov.au",
+        "co.jp", "or.jp", "co.nz", "org.nz", "co.za", "co.in", "com.br",
+        "org.br", "co.kr", "or.kr", "com.cn", "org.cn", "co.il", "org.il",
+        "com.mx", "com.ar", "com.sg", "com.hk", "com.tw",
+    })
+
+    @classmethod
+    def _base_domain(cls, domain: str) -> str:
+        """Return the registrable domain, e.g. docs.bbc.co.uk → bbc.co.uk."""
         parts = domain.split(".")
         if len(parts) > 2:
-            return ".".join(parts[-2:])
+            last_two = ".".join(parts[-2:])
+            if last_two in cls._CC_SLDS and len(parts) > 3:
+                return ".".join(parts[-3:])
+            return last_two
         return domain
 
-    @staticmethod
-    def _parse_date_from_snippet(snippet: str) -> Optional[datetime]:
-        """Attempt to extract a date from *snippet* text using dateutil."""
+    # Explicit date patterns tried before fuzzy parsing
+    _DATE_PATTERNS = [
+        re.compile(r'\b(\d{4}-\d{1,2}-\d{1,2})\b'),                          # 2026-03-22
+        re.compile(r'\b(\d{1,2}/\d{1,2}/\d{4})\b'),                          # 03/22/2026
+        re.compile(r'\b(\w+\s+\d{1,2},?\s+\d{4})\b'),                        # March 22, 2026
+        re.compile(r'\b(\d{1,2}\s+\w+\s+\d{4})\b'),                          # 22 March 2026
+    ]
+
+    @classmethod
+    def _parse_date_from_snippet(cls, snippet: str) -> Optional[datetime]:
+        """Extract a date from snippet text. Tries explicit patterns first, fuzzy as fallback."""
+        now = datetime.now()
+
+        # Try explicit patterns first (avoids "Python 3.12" → March 12)
+        for pattern in cls._DATE_PATTERNS:
+            match = pattern.search(snippet)
+            if match:
+                try:
+                    dt = dateutil_parser.parse(match.group(1))
+                    dt = dt.replace(tzinfo=None)
+                    # Reject dates outside reasonable range
+                    if dt.year < now.year - 5 or dt > now:
+                        continue
+                    return dt
+                except (ValueError, OverflowError):
+                    continue
+
+        # Fuzzy fallback — but sanity-check the result
         try:
-            # dateutil.parser.parse is greedy — use fuzzy to extract date from prose
             dt = dateutil_parser.parse(snippet, fuzzy=True)
-            # Sanity check: ignore far-future dates (likely parsing artifacts)
-            if dt > datetime.now():
+            dt = dt.replace(tzinfo=None)
+            if dt.year < now.year - 5 or dt > now:
                 return None
-            return dt.replace(tzinfo=None)  # naive datetime for comparison
+            return dt
         except (ValueError, OverflowError):
             return None

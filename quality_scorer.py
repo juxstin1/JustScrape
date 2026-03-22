@@ -194,8 +194,8 @@ class QualityScorer:
         # redistribute the unused freshness weight to relevance and authority proportionally.
         w_freshness = weights["freshness"]
         if w_freshness > 0.0 and freshness_raw == 0.0:
-            # Redistribute only if the signal is actually missing (None)
-            if ranked.freshness_score is None or intent not in _FRESHNESS_INTENTS:
+            # Redistribute when freshness signal is missing or zero
+            if ranked.freshness_score is None or ranked.freshness_score == 0.0 or intent not in _FRESHNESS_INTENTS:
                 w_relevance = weights["relevance"]
                 w_authority = weights["authority"]
                 total_non_fresh = w_relevance + w_authority
@@ -314,8 +314,14 @@ def deduplicate_results(
 
     kept: List[ScoredResult] = []
     for candidate in sorted_results:
+        # Don't dedup empty snippets — they'd all collapse into one
+        if not candidate.snippet_text:
+            kept.append(candidate)
+            continue
         is_duplicate = False
         for existing in kept:
+            if not existing.snippet_text:
+                continue
             similarity = token_sort_ratio(
                 candidate.snippet_text,
                 existing.snippet_text,

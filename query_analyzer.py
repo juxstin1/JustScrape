@@ -30,7 +30,8 @@ _CODE_PATTERN = re.compile(
 _NEWS_PATTERN = re.compile(
     r'\b(?:news|breaking|latest|today|yesterday|announce|launch|release[sd]|'
     r'update[sd]|report[sed]|publish|event|incident|happen|occur|just\s+now|'
-    r'this\s+week|this\s+month|recently|current|trending)\b',
+    r'this\s+week|this\s+month|recently|current\s+events?|current\s+news|'
+    r'currently\s+happening|trending)\b',
     re.IGNORECASE,
 )
 
