@@ -98,10 +98,16 @@ class SearchCache:
                     if response.total_results == 0:
                         del self._cache[key]
                         return None
+                    # Filter out any cached results with private/blocked URLs
+                    from url_validator import validate_url as _val_url
+                    safe_results = [
+                        r for r in response.results
+                        if _val_url(r.url)[0]
+                    ]
                     return SearchResponse(
                         query=response.query,
-                        results=response.results,
-                        total_results=response.total_results,
+                        results=safe_results,
+                        total_results=len(safe_results),
                         search_time_ms=0,
                         source=response.source,
                         success=response.success,
@@ -503,16 +509,20 @@ class WebSearch:
     # SearXNG instance URL (Docker: docker run -d --name searxng -p 8080:8080 searxng/searxng)
     SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8080")
 
-    # Warn if SearXNG is configured to a non-localhost URL over HTTP
+    # Validate SearXNG URL at load time
     _searxng_parsed = __import__('urllib.parse', fromlist=['urlparse']).urlparse(SEARXNG_URL)
-    if (_searxng_parsed.hostname not in ('localhost', '127.0.0.1', '::1', None)
-            and _searxng_parsed.scheme == 'http'):
-        import warnings
-        warnings.warn(
-            f"SEARXNG_URL uses unencrypted HTTP for non-localhost host: {SEARXNG_URL}. "
-            "Search queries will be transmitted in cleartext. Use https:// for remote hosts.",
-            stacklevel=1
-        )
+    if _searxng_parsed.scheme not in ('http', 'https'):
+        raise ValueError(f"SEARXNG_URL has invalid scheme '{_searxng_parsed.scheme}': {SEARXNG_URL}")
+    _searxng_is_local = _searxng_parsed.hostname in ('localhost', '127.0.0.1', '::1', None)
+    if not _searxng_is_local and _searxng_parsed.scheme == 'http':
+        if not os.environ.get("SEARXNG_ALLOW_REMOTE"):
+            import warnings
+            warnings.warn(
+                f"SEARXNG_URL uses unencrypted HTTP for non-localhost host: {SEARXNG_URL}. "
+                "Search queries will be transmitted in cleartext. Use https:// or set "
+                "SEARXNG_ALLOW_REMOTE=1 to suppress this warning.",
+                stacklevel=1
+            )
 
     def __init__(self, timeout: int = 10, use_cache: bool = True):
         """
@@ -963,13 +973,21 @@ def build_query(query: str, site: str = None, filetype: str = None,
         parts.append(query)
     if path_keywords:
         parts.append(path_keywords)
+    # Sanitize operator values to prevent search operator injection
+    _safe_re = re.compile(r'[^a-zA-Z0-9.\-]')
     if site:
-        parts.append(f"site:{site}")
+        site = _safe_re.sub('', site)
+        if site:
+            parts.append(f"site:{site}")
     if filetype:
-        parts.append(f"filetype:{filetype}")
+        filetype = _safe_re.sub('', filetype)
+        if filetype:
+            parts.append(f"filetype:{filetype}")
     if exclude_sites:
         for s in exclude_sites:
-            parts.append(f"-site:{s}")
+            s = _safe_re.sub('', str(s) if s is not None else '')
+            if s:
+                parts.append(f"-site:{s}")
     return " ".join(parts)
 
 

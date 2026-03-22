@@ -249,8 +249,7 @@ class QueryAnalyzer:
 
         # Abbreviation expansion: replace abbreviations with full forms
         for abbrev, full_form in _ABBREVIATION_MAP.items():
-            # Case-sensitive word boundary match for abbreviations
-            pattern = re.compile(r'\b' + re.escape(abbrev) + r'\b')
+            pattern = re.compile(r'\b' + re.escape(abbrev) + r'\b', re.IGNORECASE)
             if pattern.search(query):
                 expanded_variant = pattern.sub(full_form, query)
                 if expanded_variant != query and expanded_variant not in expanded:

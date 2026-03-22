@@ -1076,12 +1076,14 @@ async def handle_extract_urls(arguments: dict) -> CallToolResult:
         )
 
     except Exception as e:
+        import sys
+        print(f"[justscrape] extract_urls failed for {url}: {e}", file=sys.stderr)
         return CallToolResult(
             content=[
                 TextContent(
                     type="text",
                     text=json.dumps(
-                        {"success": False, "error": str(e), "url": url}, indent=2
+                        {"success": False, "error": "Extraction failed", "url": url}, indent=2
                     ),
                 )
             ],
