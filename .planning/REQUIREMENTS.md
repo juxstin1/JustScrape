@@ -65,29 +65,29 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| QUERY-01 | TBD | Pending |
-| QUERY-02 | TBD | Pending |
-| QUERY-03 | TBD | Pending |
-| QUERY-04 | TBD | Pending |
-| RANK-01 | TBD | Pending |
-| RANK-02 | TBD | Pending |
-| RANK-03 | TBD | Pending |
-| RANK-04 | TBD | Pending |
-| EXTRACT-01 | TBD | Pending |
-| EXTRACT-02 | TBD | Pending |
-| EXTRACT-03 | TBD | Pending |
-| EXTRACT-04 | TBD | Pending |
-| PIPE-01 | TBD | Pending |
-| PIPE-02 | TBD | Pending |
-| PIPE-03 | TBD | Pending |
-| PIPE-04 | TBD | Pending |
-| PIPE-05 | TBD | Pending |
+| QUERY-01 | Phase 1 | Pending |
+| QUERY-02 | Phase 1 | Pending |
+| QUERY-03 | Phase 1 | Pending |
+| QUERY-04 | Phase 1 | Pending |
+| RANK-01 | Phase 1 | Pending |
+| RANK-02 | Phase 1 | Pending |
+| RANK-03 | Phase 3 | Pending |
+| RANK-04 | Phase 2 | Pending |
+| EXTRACT-01 | Phase 1 | Pending |
+| EXTRACT-02 | Phase 1 | Pending |
+| EXTRACT-03 | Phase 1 | Pending |
+| EXTRACT-04 | Phase 1 | Pending |
+| PIPE-01 | Phase 2 | Pending |
+| PIPE-02 | Phase 2 | Pending |
+| PIPE-03 | Phase 3 | Pending |
+| PIPE-04 | Phase 2 | Pending |
+| PIPE-05 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-21*
-*Last updated: 2026-03-21 after initial definition*
+*Last updated: 2026-03-21 after roadmap creation*
