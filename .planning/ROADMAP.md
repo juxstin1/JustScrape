@@ -46,7 +46,7 @@ Plans:
   5. All existing MCP tool signatures are unchanged and all existing tests pass
 **Plans**: 2 plans
 Plans:
-- [ ] 02-01-PLAN.md — QualityScorer: composite scoring (relevance + authority + freshness + position) and rapidfuzz dedup
+- [x] 02-01-PLAN.md — QualityScorer: composite scoring (relevance + authority + freshness + position) and rapidfuzz dedup
 - [ ] 02-02-PLAN.md — Pipeline wiring: integrate all components into handle_search_and_scrape with provenance metadata
 
 ### Phase 3: Advanced Features

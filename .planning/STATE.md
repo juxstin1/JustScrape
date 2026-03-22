@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-03-22T05:34:22.911Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-03-22T05:54:43.068Z"
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 5
+  completed_plans: 4
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Return the exact relevant snippet, not just a page
-**Current focus:** Phase 01 — foundation-components
+**Current focus:** Phase 02 — pipeline-integration
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
+Phase: 02 (pipeline-integration) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Plan: Not started
 *Updated after each plan completion*
 | Phase 01 P02 | 2 minutes | 2 tasks | 2 files |
 | Phase 01-foundation-components P01 | 142 | 2 tasks | 2 files |
+| Phase 02-pipeline-integration P01 | 7 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,8 @@ Recent decisions affecting current work:
 - [Init]: AI-first design — primary consumers are AI models via MCP, not humans
 - [Phase 01]: Subdomain matching uses two-step lookup (exact netloc then base domain) to handle docs.python.org scoring correctly
 - [Phase 01]: Freshness scoring gated on _FRESHNESS_INTENTS set — code and research always return None per D-09
+- [Phase 02-pipeline-integration]: Freshness weight redistributed proportionally to relevance+authority when freshness_score is None
+- [Phase 02-pipeline-integration]: rapidfuzz added as required dep in requirements.txt; lazy import fallback preserved for missing environments
 
 ### Pending Todos
 
@@ -73,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-22T05:19:41.236Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-03-22T05:54:43.066Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None

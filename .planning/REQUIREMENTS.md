@@ -17,7 +17,7 @@
 - [x] **RANK-01**: System scores search results by source authority (domain-based tier map, query-type aware)
 - [x] **RANK-02**: System applies freshness weighting for time-sensitive queries (date extraction + decay)
 - [ ] **RANK-03**: System re-ranks results using neural cross-encoder semantic scoring (optional dependency)
-- [ ] **RANK-04**: System preserves original search position as one signal in composite re-ranking
+- [x] **RANK-04**: System preserves original search position as one signal in composite re-ranking
 
 ### Content Extraction
 
@@ -28,10 +28,10 @@
 
 ### Search Pipeline
 
-- [ ] **PIPE-01**: System computes composite quality score (relevance + authority + freshness) for every result
+- [x] **PIPE-01**: System computes composite quality score (relevance + authority + freshness) for every result
 - [ ] **PIPE-02**: System returns provenance metadata (source URL, type, date, confidence) alongside each result
 - [ ] **PIPE-03**: System auto-reformulates and retries when results score below quality floor (max 3 attempts, 15s cap)
-- [ ] **PIPE-04**: System deduplicates near-identical snippets from multiple sources before returning
+- [x] **PIPE-04**: System deduplicates near-identical snippets from multiple sources before returning
 - [ ] **PIPE-05**: System integrates all components into `search_and_scrape` without changing MCP tool signatures
 
 ## v2 Requirements
@@ -72,15 +72,15 @@
 | RANK-01 | Phase 1 | Complete |
 | RANK-02 | Phase 1 | Complete |
 | RANK-03 | Phase 3 | Pending |
-| RANK-04 | Phase 2 | Pending |
+| RANK-04 | Phase 2 | Complete |
 | EXTRACT-01 | Phase 1 | Pending |
 | EXTRACT-02 | Phase 1 | Pending |
 | EXTRACT-03 | Phase 1 | Pending |
 | EXTRACT-04 | Phase 1 | Pending |
-| PIPE-01 | Phase 2 | Pending |
+| PIPE-01 | Phase 2 | Complete |
 | PIPE-02 | Phase 2 | Pending |
 | PIPE-03 | Phase 3 | Pending |
-| PIPE-04 | Phase 2 | Pending |
+| PIPE-04 | Phase 2 | Complete |
 | PIPE-05 | Phase 2 | Pending |
 
 **Coverage:**
