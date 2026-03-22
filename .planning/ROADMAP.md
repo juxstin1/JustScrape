@@ -30,8 +30,8 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. SnippetExtractor takes a scraped page, extracts clean body text via trafilatura, splits it into logical sections, scores each chunk against the query, and returns the highest-scoring chunk(s)
 **Plans**: 3 plans
 Plans:
-- [ ] 01-01-PLAN.md — QueryAnalyzer: intent classification, query expansion, decomposition, entity extraction
-- [ ] 01-02-PLAN.md — ResultReranker: authority scoring with per-query-type maps, freshness weighting
+- [x] 01-01-PLAN.md — QueryAnalyzer: intent classification, query expansion, decomposition, entity extraction
+- [x] 01-02-PLAN.md — ResultReranker: authority scoring with per-query-type maps, freshness weighting
 - [ ] 01-03-PLAN.md — SnippetExtractor: trafilatura extraction, hybrid chunking, BM25+TF-IDF scoring, sentence matching
 
 ### Phase 2: Pipeline Integration
@@ -63,6 +63,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Components | 0/3 | Planning complete | - |
+| 1. Foundation Components | 2/3 | In Progress|  |
 | 2. Pipeline Integration | 0/TBD | Not started | - |
 | 3. Advanced Features | 0/TBD | Not started | - |
