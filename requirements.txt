@@ -30,6 +30,9 @@ python-dateutil>=2.8.0
 trafilatura>=2.0.0
 rank-bm25>=0.2.2
 
+# Quality scoring and deduplication (Phase 2 — pipeline integration)
+rapidfuzz>=3.0.0  # Near-duplicate snippet detection in deduplicate_results
+
 # Optional enhancements
 pyperclip>=1.8.0  # Clipboard support for CLI
 # newspaper3k>=0.2.8  # News article extraction
