@@ -224,8 +224,8 @@ class QueryAnalyzer:
         # Recompute total after boosting for proper confidence ratio
         boosted_total = sum(match_counts.values())
 
-        # Compute confidence: proportion of top label's matches + base boost
-        confidence = min(1.0, (top_count / boosted_total) + 0.3)
+        # Confidence = proportion of top label + small baseline to avoid over-penalizing
+        confidence = min(1.0, (top_count / boosted_total) + 0.1)
 
         if confidence < 0.7:
             return ("general", confidence)

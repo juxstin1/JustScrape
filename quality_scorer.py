@@ -74,7 +74,7 @@ _FRESHNESS_INTENTS = {"news", "current", "current-events"}
 # First match wins.
 _SOURCE_TYPE_PATTERNS: List[tuple[str, str]] = [
     # documentation (match before general hosting)
-    ("docs.", "documentation"),
+    ("docs.", "documentation"),  # matched via startswith below, not substring
     ("readthedocs", "documentation"),
     ("devdocs", "documentation"),
     # repository
@@ -251,7 +251,11 @@ class QualityScorer:
             return "unknown"
 
         for pattern, source_type in _SOURCE_TYPE_PATTERNS:
-            if pattern in netloc:
+            # "docs." uses startswith to avoid false positives (docs.google.com)
+            if pattern == "docs.":
+                if netloc.startswith("docs."):
+                    return source_type
+            elif pattern in netloc:
                 return source_type
 
         return "unknown"

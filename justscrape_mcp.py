@@ -276,7 +276,7 @@ class PooledSmartScraper(SmartScraper):
             page.route("**/*", route_handler)
 
             # Navigate
-            page.goto(url, wait_until="networkidle", timeout=30000)
+            page.goto(url, wait_until="domcontentloaded", timeout=15000)
             page.wait_for_timeout(2000)  # Let JS settle
 
             html = page.content()
@@ -567,6 +567,12 @@ async def handle_web_search(arguments: dict) -> CallToolResult:
             isError=True,
         )
 
+    if exclude_sites is not None:
+        if not isinstance(exclude_sites, list):
+            exclude_sites = None
+        else:
+            exclude_sites = [str(s) for s in exclude_sites if s is not None]
+
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(
         None,
@@ -749,15 +755,7 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
 
             ok, reason = should_scrape(url, ranked.snippet)
             if ok and len(candidates) < num_results:
-                candidates.append(
-                    (
-                        ranked,
-                        search_results_as_dicts[ranked.original_position - 1]
-                        if ranked.original_position - 1
-                        < len(search_results_as_dicts)
-                        else None,
-                    )
-                )
+                candidates.append(ranked)
             else:
                 skipped.append(
                     {"url": url, "title": ranked.title, "skip_reason": reason}
@@ -767,64 +765,69 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
         scraper = PooledSmartScraper()
 
         async def scrape_and_extract_one(
-            ranked: RankedResult, search_result_dict: Optional[dict]
+            ranked: RankedResult,
         ) -> Optional[tuple]:
             """Returns (ScoredResult, all_snippets) or None."""
             url = ranked.url
             sem = _get_scrape_semaphore()
-            async with sem:
-                try:
+
+            # Hold semaphore only for network I/O, release before CPU work
+            try:
+                async with sem:
                     scraped = await loop.run_in_executor(
                         None, lambda u=url: scraper.scrape_to_dict(u)
                     )
-                    full_content = scraped.get("content", "") or ""
+                full_content = scraped.get("content", "") or ""
+            except Exception as e:
+                import sys
+                print(f"[justscrape] Scrape failed for {url}: {e}", file=sys.stderr)
+                return None
 
-                    # Extract snippets — grep-like: find the relevant chunks
-                    snippets = _snippet_extractor.extract_snippets(
-                        html=full_content,
-                        query=analyzed.original,
-                        intent=analyzed.intent,
-                        url=url,
-                        top_n=3,
+            try:
+                # CPU-bound: snippet extraction + scoring (no semaphore needed)
+                snippets = _snippet_extractor.extract_snippets(
+                    html=full_content,
+                    query=analyzed.original,
+                    intent=analyzed.intent,
+                    url=url,
+                    top_n=3,
+                )
+
+                if snippets and len(snippets) > 0:
+                    best_snippet = snippets[0]
+                else:
+                    fallback_text = full_content[:500] if full_content else ""
+                    _js_indicators = ("var ", "function(", "(function(", "window.", "document.", "<!doctype", "<?xml")
+                    is_js_garbage = fallback_text and any(
+                        fallback_text.strip().lower().startswith(sig) for sig in _js_indicators
                     )
+                    if is_js_garbage:
+                        fallback_text = ""
 
-                    if snippets and len(snippets) > 0:
-                        best_snippet = snippets[0]
-                    else:
-                        # Detect JS-only content — don't return raw JavaScript as snippet
-                        fallback_text = full_content[:500] if full_content else ""
-                        _js_indicators = ("var ", "function(", "(function(", "window.", "document.", "<!doctype", "<?xml")
-                        is_js_garbage = fallback_text and any(
-                            fallback_text.strip().lower().startswith(sig) for sig in _js_indicators
-                        )
-                        if is_js_garbage:
-                            fallback_text = ""
-
-                        best_snippet = ExtractedSnippet(
-                            text=fallback_text,
-                            chunk_index=0,
-                            score=0.1,
-                            is_code=False,
-                            source_url=url,
-                            best_sentence=fallback_text[:200] if fallback_text else "",
-                        )
-                        snippets = [best_snippet]
-
-                    # Quality scoring
-                    scored = _quality_scorer.score(
-                        snippet=best_snippet, ranked=ranked, query=analyzed
+                    best_snippet = ExtractedSnippet(
+                        text=fallback_text,
+                        chunk_index=0,
+                        score=0.1,
+                        is_code=False,
+                        source_url=url,
+                        best_sentence=fallback_text[:200] if fallback_text else "",
                     )
+                    snippets = [best_snippet]
 
-                    return (scored, snippets)
-                except Exception as e:
-                    import sys
-                    print(f"[justscrape] Scrape failed for {url}: {e}", file=sys.stderr)
-                    return None
+                scored = _quality_scorer.score(
+                    snippet=best_snippet, ranked=ranked, query=analyzed
+                )
+
+                return (scored, snippets)
+            except Exception as e:
+                import sys
+                print(f"[justscrape] Extract/score failed for {url}: {e}", file=sys.stderr)
+                return None
 
         # Fire all scrape+extract tasks in parallel
         scrape_tasks = [
-            scrape_and_extract_one(ranked, search_dict)
-            for ranked, search_dict in candidates
+            scrape_and_extract_one(ranked)
+            for ranked in candidates
         ]
         raw_results = await asyncio.gather(*scrape_tasks)
         # Collect (ScoredResult, snippets) pairs
