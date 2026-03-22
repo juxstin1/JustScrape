@@ -222,9 +222,16 @@ class PooledSmartScraper(SmartScraper):
 
             use_js = True
 
-        # Use pooled browser for JS
+        # Use pooled browser for JS — fall back to static if Playwright unavailable
         if use_js:
-            return self._scrape_with_pooled_browser(url, content_types)
+            try:
+                return self._scrape_with_pooled_browser(url, content_types)
+            except Exception:
+                # Playwright not installed or browser failed — try static as last resort
+                result = self.static_scraper.scrape(url, content_types)
+                if result.content:
+                    return result
+                return ScrapedContent(url=url)
 
         # Unreachable, but safe fallback
         return ScrapedContent(url=url)
@@ -768,7 +775,9 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
                     )
 
                     return (scored, snippets)
-                except Exception:
+                except Exception as e:
+                    import sys
+                    print(f"[justscrape] Scrape failed for {url}: {e}", file=sys.stderr)
                     return None
 
         # Fire all scrape+extract tasks in parallel
