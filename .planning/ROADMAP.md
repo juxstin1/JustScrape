@@ -44,7 +44,10 @@ Plans:
   3. Near-identical snippets from multiple sources are deduplicated before the response is returned
   4. The length-biased relevance scorer is replaced; short precise answers outrank long tangentially-relevant pages
   5. All existing MCP tool signatures are unchanged and all existing tests pass
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 02-01-PLAN.md — QualityScorer: composite scoring (relevance + authority + freshness + position) and rapidfuzz dedup
+- [ ] 02-02-PLAN.md — Pipeline wiring: integrate all components into handle_search_and_scrape with provenance metadata
 
 ### Phase 3: Advanced Features
 **Goal**: Neural semantic re-ranking and intelligent reformulation-with-retry are available, with the reformulation loop protected by hard termination guards
@@ -64,5 +67,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation Components | 2/3 | In Progress|  |
-| 2. Pipeline Integration | 0/TBD | Not started | - |
+| 2. Pipeline Integration | 0/2 | Not started | - |
 | 3. Advanced Features | 0/TBD | Not started | - |
