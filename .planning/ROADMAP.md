@@ -28,7 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. QueryAnalyzer decomposes a multi-part question into independent sub-queries that can each be searched separately
   4. ResultReranker re-orders a list of search results by source authority tier (query-type aware) and freshness weight, returning results with scores and their original position preserved
   5. SnippetExtractor takes a scraped page, extracts clean body text via trafilatura, splits it into logical sections, scores each chunk against the query, and returns the highest-scoring chunk(s)
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 01-01-PLAN.md — QueryAnalyzer: intent classification, query expansion, decomposition, entity extraction
+- [ ] 01-02-PLAN.md — ResultReranker: authority scoring with per-query-type maps, freshness weighting
+- [ ] 01-03-PLAN.md — SnippetExtractor: trafilatura extraction, hybrid chunking, BM25+TF-IDF scoring, sentence matching
 
 ### Phase 2: Pipeline Integration
 **Goal**: End-to-end improved search quality is live; `search_and_scrape` returns structured snippets with scores and provenance metadata without any change to MCP tool signatures
@@ -59,6 +63,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Components | 0/TBD | Not started | - |
+| 1. Foundation Components | 0/3 | Planning complete | - |
 | 2. Pipeline Integration | 0/TBD | Not started | - |
 | 3. Advanced Features | 0/TBD | Not started | - |
