@@ -26,8 +26,11 @@ defusedxml>=0.7.1
 # Data handling
 python-dateutil>=2.8.0
 
+# Content analysis (Phase 1 — snippet extraction)
+trafilatura>=2.0.0
+rank-bm25>=0.2.2
+
 # Optional enhancements
 pyperclip>=1.8.0  # Clipboard support for CLI
-# trafilatura>=1.6.0  # Alternative clean text extraction
 # newspaper3k>=0.2.8  # News article extraction
 # readability-lxml>=0.8.1  # Mozilla readability algorithm
