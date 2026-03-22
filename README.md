@@ -1,55 +1,40 @@
 # JustScrape
 
-Layered intelligence web scraper + **MCP Server** that provides free web search and scraping capabilities to AI models.
+God-status web search for AI. Free. No API keys. Returns the exact snippet, not a wall of text.
 
-## Features
+JustScrape is an MCP server that gives AI models web search and scraping capabilities. It searches via a self-hosted SearXNG instance (aggregating Google, Bing, and 70+ engines), scrapes the results, extracts only the relevant chunks using BM25/TF-IDF scoring, and returns precisely what the AI needs — scored, ranked, and deduplicated.
 
-- **MCP Server** - Expose web search and scraping as tools for Claude, LM Studio, or any MCP-compatible client
-- **Free Web Search** - DuckDuckGo-based SERP search, no API keys required
-- **Multi-Backend Search** - Pluggable backend system: DuckDuckGo (default), SearXNG (self-hosted), Brave Search (free tier)
-- **Query Operators** - `site:`, `filetype:`, date range, domain exclusion built into the search API
-- **Parallel Scraping** - Search results scraped concurrently via `asyncio.gather` (3-5x faster)
-- **2-Layer Cache** - In-memory (5 min) + SQLite persistent (24 hr) — survives server restarts
-- **Per-Domain Rate Limiting** - Scraping different domains doesn't throttle each other
-- **Snippet Pre-Filtering** - Skips known-blocked domains and non-content URLs before scraping
-- **HEAD Pre-Check** - Verifies pages are reachable HTML before committing to a full download
-- **Relevance Scoring** - Scraped results ranked by query relevance (TF + title match + length)
-- **Robots.txt Awareness** - Respects robots.txt to avoid wasting time on disallowed paths
-- **Smart JS Fallback** - Multi-signal detection (noscript tags, script density, JS-required messages) not just content length
-- **httpx + HTTP/2** - Async scraper with HTTP/2 multiplexing and connection pooling
-- **Clean Extraction** - Strips ads, trackers, navigation, and bloat to extract actual content
-- **LLM-Ready Output** - Markdown and plain text formats optimized for AI consumption
-- **Interactive CLI** - Menu-driven interface with batch scraping, data extraction, and clipboard support
+**~1,000 tokens per search** instead of ~5,000+. No paid APIs. No rate limits.
 
-## Security
+## Quick Start
 
-JustScrape includes hardened security for safe operation as an MCP server:
+```bash
+# 1. Clone and install
+git clone https://github.com/juxstin1/JustScrape.git
+cd JustScrape
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 
-- **SSRF Protection** - All URLs validated before outbound requests; blocks private IPs (10.x, 172.16.x, 192.168.x, 127.x, 169.254.x), non-HTTP schemes (`file://`, `data://`, `javascript://`), and cloud metadata endpoints
-- **XXE Defense** - Sitemap parsing uses `defusedxml` to block XML entity expansion attacks (Billion Laughs) and external entity injection
-- **Browser Isolation** - Each Playwright scrape runs in an isolated browser context (separate cookies, storage, cache) to prevent cross-site data leakage
-- **Response Size Caps** - Streaming HTTP reads with 10MB limit prevent memory exhaustion from oversized responses
-- **Input Validation** - Query length (1000 chars), URL length (2048 chars), and content size (100K chars) are server-side capped
-- **Concurrency Limits** - Global semaphore caps parallel outbound scrapes to prevent DDoS amplification
-- **Sanitized Errors** - Exception details logged to stderr; only generic error messages returned to MCP clients
-- **112 Security Tests** - Covering URL validation, XXE protection, SSRF blocking, adapter isolation, and classification
+# 2. Start SearXNG (one-time)
+mkdir -p ~/searxng
+cat > ~/searxng/settings.yml << 'EOF'
+use_default_settings: true
+search:
+  formats:
+    - html
+    - json
+server:
+  limiter: false
+  secret_key: "justscrape-local-dev"
+EOF
+sudo docker run -d --name searxng -p 8080:8080 \
+  -v ~/searxng/settings.yml:/etc/searxng/settings.yml \
+  searxng/searxng
 
-## MCP Server (For AI Models)
-
-JustScrape can run as an MCP (Model Context Protocol) server, exposing tools that AI models can use directly.
-
-### Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `web_search` | Free SERP search with operators (site:, filetype:, date range, exclude) |
-| `scrape_url` | Clean content extraction with HEAD pre-check and robots.txt awareness |
-| `search_and_scrape` | Search + parallel scrape with pre-filtering and relevance scoring |
-| `extract_urls` | Extract all links from a webpage |
-
-### Setup with Claude Desktop
-
-Add to your Claude Desktop config (`~/.config/claude/claude_desktop_config.json` on Linux/Mac or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+# 3. Add to Claude Desktop config
+# ~/.config/claude/claude_desktop_config.json (Linux/Mac)
+# %APPDATA%\Claude\claude_desktop_config.json (Windows)
+```
 
 ```json
 {
@@ -62,267 +47,196 @@ Add to your Claude Desktop config (`~/.config/claude/claude_desktop_config.json`
 }
 ```
 
-### Setup with Other MCP Clients
+## How It Works
 
-Run the server directly:
-
-```bash
-python justscrape_mcp.py
+```
+Query: "what is happening in Tel Aviv"
+                    │
+                    ▼
+            ┌───────────────┐
+            │ QueryAnalyzer │  Intent: news, confidence: 0.85
+            └───────┬───────┘  Entities: [Tel Aviv], expanded queries
+                    │
+                    ▼
+            ┌───────────────┐
+            │   SearXNG     │  Google + Bing + 70 engines
+            │  (localhost)  │  No rate limits, no API keys
+            └───────┬───────┘
+                    │
+                    ▼
+           ┌────────────────┐
+           │ ResultReranker │  Authority scoring (per query type)
+           └───────┬────────┘  Freshness weighting (news only)
+                   │
+                   ▼
+          ┌─────────────────┐
+          │ Parallel Scrape │  Concurrent fetching with semaphore
+          │        +        │
+          │SnippetExtractor │  BM25 + TF-IDF chunk scoring
+          └────────┬────────┘  Returns top 3 relevant chunks only
+                   │
+                   ▼
+           ┌───────────────┐
+           │ QualityScorer │  Composite: relevance + authority +
+           └───────┬───────┘  freshness + position
+                   │
+                   ▼
+           ┌───────────────┐
+           │   Dedup       │  rapidfuzz near-duplicate removal
+           └───────┬───────┘
+                   │
+                   ▼
+            Scored results
+            ~1,000 tokens
 ```
 
-The server communicates via stdio using the MCP protocol.
+## MCP Tools
 
-### Example: Web Search Tool
+| Tool | Description |
+|------|-------------|
+| `search_and_scrape` | Full quality pipeline — search, rerank, scrape, extract, score, dedup |
+| `web_search` | Raw search results without scraping |
+| `scrape_url` | Scrape a single URL with clean extraction |
+| `extract_urls` | Extract all links from a webpage |
+
+### search_and_scrape Response
 
 ```json
 {
-  "name": "web_search",
-  "arguments": {
-    "query": "python web scraping tutorial",
-    "num_results": 5,
-    "site": "realpython.com",
-    "date_range": "year"
-  }
-}
-```
-
-Returns:
-```json
-{
-  "query": "python web scraping tutorial site:realpython.com",
+  "success": true,
+  "query": "python exception handling",
   "results": [
     {
-      "position": 1,
-      "title": "Web Scraping with Python - Real Python",
-      "url": "https://realpython.com/...",
-      "snippet": "Learn how to scrape websites..."
+      "title": "8. Errors and Exceptions — Python 3.14 docs",
+      "url": "https://docs.python.org/3/tutorial/errors.html",
+      "content": "...",
+      "best_sentence": "The try statement works as follows...",
+      "relevance_score": 0.54,
+      "score_breakdown": {
+        "relevance": 0.65,
+        "authority": 1.0,
+        "freshness": null,
+        "position": 0.85
+      },
+      "source_type": "documentation",
+      "confidence": 0.85,
+      "scraped_successfully": true
     }
   ],
-  "total_results": 5,
-  "success": true,
-  "cached": false
+  "total_results": 3
 }
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────┐     ┌──────────────────────┐
-│  justscrape_mcp.py  │     │  scrape_premium.py   │
-│   (MCP Server)      │     │    (CLI interface)   │
-└─────────┬───────────┘     └──────────┬───────────┘
-          │                            │
-          └────────────┬───────────────┘
-                       ▼
-              ┌────────────────────┐
-              │  smart_scraper.py  │
-              │  (intelligence)    │
-              └────────┬───────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    justscrape_mcp.py                        │
+│                     (MCP Server)                            │
+│                                                             │
+│  ┌──────────────┐ ┌───────────────┐ ┌───────────────────┐  │
+│  │QueryAnalyzer │ │ResultReranker │ │ SnippetExtractor  │  │
+│  │ intent, NER  │ │ authority,    │ │ trafilatura,      │  │
+│  │ expansion    │ │ freshness     │ │ BM25 + TF-IDF     │  │
+│  └──────────────┘ └───────────────┘ └───────────────────┘  │
+│                                                             │
+│  ┌──────────────┐ ┌───────────────┐                        │
+│  │QualityScorer │ │   Dedup       │                        │
+│  │ composite    │ │ rapidfuzz     │                        │
+│  └──────────────┘ └───────────────┘                        │
+└──────────────────────┬──────────────────────────────────────┘
                        │
          ┌─────────────┼─────────────┐
          ▼             ▼             ▼
 ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│web_scraper  │ │ js_scraper  │ │ web_search  │
-│  (static)   │ │ (browser)   │ │   (SERP)    │
-└─────────────┘ └─────────────┘ └─────────────┘
+│ web_search  │ │smart_scraper│ │async_scraper│
+│  SearXNG    │ │ static + JS │ │ httpx/HTTP2 │
+└──────┬──────┘ └─────────────┘ └─────────────┘
+       │
+       ▼
+┌─────────────┐
+│  SearXNG    │  Self-hosted Docker container
+│ (localhost) │  Google + Bing + 70 engines
+└─────────────┘
 ```
 
-| Layer | Purpose |
-|-------|---------|
-| `justscrape_mcp.py` | MCP server — parallel scraping, pre-filtering, relevance scoring |
-| `scrape_premium.py` | Interactive CLI with menus, batch processing, settings |
-| `smart_scraper.py` | Multi-signal JS fallback detection, auto-routing |
-| `web_scraper.py` | Static scraping with HEAD pre-check, robots.txt, per-domain rate limiting |
+### Quality Pipeline Modules
+
+| Module | Purpose |
+|--------|---------|
+| `query_analyzer.py` | Intent classification, query expansion, entity extraction, decomposition |
+| `result_reranker.py` | Per-query-type authority scoring, freshness weighting, blocked domain filtering |
+| `snippet_extractor.py` | trafilatura text extraction, hybrid chunking, BM25+TF-IDF relevance scoring |
+| `quality_scorer.py` | Composite scoring (relevance + authority + freshness + position), dedup |
+
+### Infrastructure Modules
+
+| Module | Purpose |
+|--------|---------|
+| `justscrape_mcp.py` | MCP server — orchestrates the full pipeline |
+| `web_search.py` | Search orchestration with 2-layer cache (memory + SQLite) |
+| `smart_scraper.py` | Auto-routing between static and JS scraping |
+| `web_scraper.py` | Static scraping with HEAD pre-check, robots.txt, rate limiting |
 | `async_scraper.py` | httpx + HTTP/2 async scraper with connection pooling |
-| `js_scraper.py` | Browser-based scraping via Playwright for JS-heavy sites |
-| `web_search.py` | Multi-backend search with 2-layer cache and query operators |
-| `backends/` | Pluggable search backends: DuckDuckGo, SearXNG, Brave Search |
+| `js_scraper.py` | Playwright browser scraping for JS-heavy sites |
+| `backends/` | Search backend implementations |
 
-## Installation
+## Search Backend: SearXNG
+
+JustScrape uses a self-hosted [SearXNG](https://github.com/searxng/searxng) instance as its only search backend. SearXNG is a free, open-source meta-search engine that aggregates results from Google, Bing, DuckDuckGo, and 70+ other engines.
+
+**Why SearXNG?**
+- **No rate limits** — you own the instance
+- **No API keys** — completely free
+- **Better results** — aggregates multiple engines, not just one
+- **No CAPTCHA** — Google/Bing see SearXNG's server, not yours
+
+**Managing SearXNG:**
 
 ```bash
-# Clone the repo
-git clone https://github.com/juxstin1/JustScrape.git
-cd JustScrape
+# Start
+sudo docker start searxng
 
-# Create virtual environment
-python -m venv venv
+# Stop
+sudo docker stop searxng
 
-# Activate it
-# Windows:
-venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
+# View logs
+sudo docker logs searxng
 
-# Install dependencies
-pip install -r requirements.txt
+# Restart
+sudo docker restart searxng
 
-# Install Playwright browsers (required for JS scraping)
-playwright install chromium
+# Remove and recreate
+sudo docker rm -f searxng
+sudo docker run -d --name searxng -p 8080:8080 \
+  -v ~/searxng/settings.yml:/etc/searxng/settings.yml \
+  searxng/searxng
 ```
 
-## Usage
+## Security
 
-### Interactive Mode (Recommended)
-
-**Windows:**
-```bash
-scrape.bat
-```
-
-**Linux/Mac:**
-```bash
-python scrape_premium.py
-```
-
-### Programmatic Usage
-
-```python
-from smart_scraper import scrape_article, extract_article_for_llm, scrape_with_extraction
-
-# Basic article scraping
-content = scrape_article("https://example.com/article")
-
-# LLM-optimized extraction
-llm_content = extract_article_for_llm("https://example.com/article")
-
-# Extract specific data
-emails = scrape_with_extraction("https://example.com", "emails")
-phones = scrape_with_extraction("https://example.com", "phones")
-urls = scrape_with_extraction("https://example.com", "urls")
-```
-
-```python
-from web_scraper import WebScraper, ContentType, quick_scrape
-
-# Quick scrape
-text = quick_scrape("https://example.com")
-
-# Full control
-scraper = WebScraper(rate_limit=2.0)
-result = scraper.scrape(
-    "https://example.com",
-    content_types=[
-        ContentType.CLEAN_TEXT,
-        ContentType.METADATA,
-        ContentType.LINKS,
-        ContentType.IMAGES
-    ]
-)
-```
-
-```python
-from js_scraper import JavaScriptScraper, scrape_js_site
-
-# Quick JS scrape
-content = scrape_js_site("https://twitter.com/user")
-
-# With custom wait
-with JavaScriptScraper() as scraper:
-    result = scraper.scrape("https://spa-site.com", custom_wait=".main-content")
-
-    # Infinite scroll support
-    result = scraper.scrape_with_scroll("https://infinite-scroll-site.com", scrolls=5)
-```
-
-## How It Works
-
-### Smart Detection
-
-Known JS-heavy domains trigger browser rendering automatically:
-- twitter.com / x.com
-- reddit.com
-- instagram.com
-- facebook.com
-- linkedin.com
-- medium.com
-- substack.com
-- youtube.com
-
-### Content Extraction
-
-1. Removes `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<aside>`
-2. Strips elements matching ad/tracking patterns
-3. Locates main content via `<article>`, `<main>`, or content-related classes
-4. Deduplicates and cleans whitespace
-
-### Ad/Tracker Blocking
-
-Browser mode blocks:
-- Google Analytics / Tag Manager
-- DoubleClick
-- Facebook Pixel
-- Twitter tracking
-- Generic ad patterns
+- **SSRF Protection** — URL validation blocks private IPs, non-HTTP schemes, cloud metadata endpoints
+- **XXE Defense** — `defusedxml` for sitemap parsing
+- **Browser Isolation** — Playwright scrapes in isolated contexts
+- **Response Size Caps** — 10MB streaming limit
+- **Input Validation** — Query (1000 chars), URL (2048 chars), content (100K chars) server-side caps
+- **Concurrency Limits** — Global semaphore prevents DDoS amplification
+- **215 Tests** — Covering URL validation, XXE, SSRF, pipeline integration, and quality scoring
 
 ## Dependencies
 
 | Package | Purpose |
 |---------|---------|
-| requests | HTTP requests for static scraping |
-| httpx[http2] | Async HTTP/2 scraping with connection pooling |
-| beautifulsoup4 | HTML parsing |
-| lxml | Fast HTML parser |
-| defusedxml | XML security (XXE/entity expansion protection) |
-| playwright | Headless browser for JS sites |
-| mcp | MCP server framework |
-| duckduckgo-search | Free web search (default backend) |
-| click | Interactive CLI |
-| pyperclip | Clipboard support (optional) |
-
-## Multi-Backend Search
-
-JustScrape supports pluggable search backends. DuckDuckGo is the default (no config needed).
-
-### SearXNG (Self-Hosted Meta-Search)
-
-Unlimited queries via 70+ search engines:
-
-```bash
-# Deploy SearXNG
-docker run -d --name searxng -p 8080:8080 searxng/searxng
-
-# Use in Python
-from backends import SearXNGBackend, MultiSearch, DuckDuckGoBackend
-
-multi = MultiSearch([
-    SearXNGBackend(base_url="http://localhost:8080"),
-    DuckDuckGoBackend(),  # fallback
-])
-result = multi.search("python web scraping", num_results=10)
-```
-
-### Brave Search (Free Tier)
-
-2,000 queries/month with independent index:
-
-```bash
-export BRAVE_SEARCH_API_KEY="your-key-here"
-```
-
-```python
-from backends import BraveSearchBackend
-brave = BraveSearchBackend()
-result = brave.search("python tutorial", num_results=5)
-```
-
-## Source Adapters
-
-JustScrape includes non-browser adapters for sites that are hard to scrape statically:
-
-| Adapter | Method | Sites |
-|---------|--------|-------|
-| Reddit JSON | API | reddit.com (subreddits, threads, comments) |
-| Dev.to API | API | dev.to (articles, markdown content) |
-| GitHub Discussions | HTML | github.com/*/discussions/* |
-| StackExchange API | API | stackoverflow.com, superuser.com, serverfault.com, *.stackexchange.com |
-| StackPrinter | HTML fallback | Stack Exchange (when API fails) |
-
-## Future Roadmap
-
-- **Docker Support** - Containerized deployment with Playwright for JS rendering
-- **Proxy Rotation** - BrightData integration for scale
-- **Vector DB Pipeline** - Chain to AnythingLLM or Qdrant for RAG workflows
+| `mcp` | MCP server framework |
+| `requests` | HTTP for static scraping |
+| `httpx[http2]` | Async HTTP/2 scraping |
+| `beautifulsoup4` + `lxml` | HTML parsing |
+| `trafilatura` | Content extraction for snippet scoring |
+| `rank-bm25` | BM25 relevance scoring |
+| `scikit-learn` | TF-IDF vectorization |
+| `rapidfuzz` | Near-duplicate detection |
+| `defusedxml` | XML security |
+| `playwright` | JS-heavy site rendering (optional) |
 
 ## License
 

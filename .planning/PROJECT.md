@@ -30,18 +30,23 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 - ✓ Precision content extraction — sentence-level semantic matching for exact answers — Phase 1
 - ✓ Domain-aware search strategies — per-query-type authority maps and freshness weighting — Phase 1
 
+- ✓ Composite quality scoring — relevance + authority + freshness + position wired into live pipeline — Phase 2
+- ✓ Near-duplicate dedup — rapidfuzz-based snippet dedup before response — Phase 2
+- ✓ Provenance metadata — source_type, detected_date, confidence, score_breakdown on every result — Phase 2
+- ✓ Snippet-only responses — content is extracted chunks only (~1K tokens), not full pages (~5K+) — Phase 2
+- ✓ SearXNG-only search — self-hosted meta-search, no rate limits, no API keys, no DuckDuckGo — Phase 2
+
 ### Active
 
-- [ ] Multi-source synthesis — combine information from multiple pages into a coherent answer
-- [ ] Relevance-based result ranking — composite scoring wired into live pipeline
-- [ ] Result quality scoring — score each result on relevance, freshness, authority before returning
 - [ ] Intelligent retry with reformulation — when results are poor, automatically reformulate and retry
+- [ ] Neural re-ranking — cross-encoder semantic scoring when sentence-transformers is installed
+- [ ] Multi-source synthesis — combine information from multiple pages into a coherent answer
 
 ### Out of Scope
 
-- Paid API integrations — must stay free (DuckDuckGo, SearXNG, free sources only)
+- Paid API integrations — must stay free
+- DuckDuckGo — unreliable, rate-limited, returns empty results
 - Human-facing UI/CLI improvements — this is AI-first, MCP-only focus
-- Architecture/packaging cleanup — not touching plumbing, purely search quality
 - Building a general-purpose web browser — we extract and return, not navigate
 - Real-time streaming of results — MCP tools return complete responses
 
@@ -49,8 +54,8 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 
 - Existing codebase: ~8,600 lines of Python across 11 modules + 11 test files
 - Architecture: layered (MCP server → SmartScraper → scraper engines) with search backends
-- Current search backends: DuckDuckGo (free, default), SearXNG (self-hosted), Brave (API key)
-- Known issues: results are often irrelevant to the actual query intent; scraped content is noisy
+- Search backend: self-hosted SearXNG (Docker), aggregating Google + Bing + 70 engines
+- Quality pipeline: QueryAnalyzer → SearXNG → ResultReranker → Scrape + SnippetExtractor → QualityScorer → Dedup
 - Benchmark: Context7's ability to find the exact documentation snippet from a vague query
 - Competitors to beat: Perplexity (paid), Tavily (paid API), Exa (paid API)
 - Target users: AI models calling via MCP — results must be AI-consumable
@@ -67,9 +72,11 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Free APIs only | User constraint — no budget for paid search APIs | — Pending |
-| Quality-only scope | User wants results improvement, not code cleanup | — Pending |
-| AI-first design | Primary consumers are AI models via MCP, not humans | — Pending |
+| Free APIs only | User constraint — no budget for paid search APIs | SearXNG self-hosted |
+| Quality-only scope | User wants results improvement, not code cleanup | Pipeline complete |
+| AI-first design | Primary consumers are AI models via MCP, not humans | ~1K tokens/search |
+| No DuckDuckGo | Unreliable, rate-limited, returns empty results | Removed — SearXNG only |
+| Snippet-only content | Full pages waste tokens; extract relevant chunks only | BM25+TF-IDF extraction |
 
 ## Evolution
 
@@ -89,4 +96,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-21 after initialization*
+*Last updated: 2026-03-22 — Phase 2 pipeline integration complete, SearXNG as sole backend*

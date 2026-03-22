@@ -2,80 +2,57 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-03-22T05:54:43.068Z"
+status: executing
+stopped_at: Phase 02 complete — pipeline wired, SearXNG backend, snippet-only responses
+last_updated: "2026-03-22T12:00:00.000Z"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-21)
+See: .planning/PROJECT.md (updated 2026-03-22)
 
 **Core value:** Return the exact relevant snippet, not just a page
-**Current focus:** Phase 02 — pipeline-integration
+**Current focus:** Phase 02 complete — Phase 03 (Advanced Features) next
 
 ## Current Position
 
-Phase: 02 (pipeline-integration) — EXECUTING
-Plan: 2 of 2
+Phase: 02 (pipeline-integration) — COMPLETE
+Next: Phase 03 (advanced-features) — neural re-ranking, intelligent retry
 
-## Performance Metrics
+## What's Live
 
-**Velocity:**
+- **Quality Pipeline**: QueryAnalyzer → SearXNG → ResultReranker → Scrape + SnippetExtractor → QualityScorer → Dedup
+- **Search Backend**: Self-hosted SearXNG (Docker) — Google + Bing + 70 engines, no rate limits
+- **Snippet-only responses**: ~1,000 tokens per search (was ~5,200)
+- **Provenance metadata**: source_type, detected_date, confidence, score_breakdown on every result
+- **215 tests passing**
 
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+## Decisions
 
-**By Phase:**
+- [Init]: Free APIs only — no paid search APIs
+- [Init]: Quality-only scope — no architecture refactoring
+- [Init]: AI-first design — primary consumers are AI models via MCP
+- [Phase 01]: Subdomain matching uses two-step lookup (exact netloc then base domain)
+- [Phase 01]: Freshness scoring gated on _FRESHNESS_INTENTS set
+- [Phase 02]: Freshness weight redistributed proportionally when freshness_score is None
+- [Phase 02]: rapidfuzz added as required dep; lazy import fallback preserved
+- [Phase 02]: DuckDuckGo removed — unreliable, rate-limited. SearXNG is the only backend.
+- [Phase 02]: Content field returns extracted snippets only, not full page dumps
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
+## Blockers/Concerns
 
-**Recent Trend:**
-
-- Last 5 plans: -
-- Trend: -
-
-*Updated after each plan completion*
-| Phase 01 P02 | 2 minutes | 2 tasks | 2 files |
-| Phase 01-foundation-components P01 | 142 | 2 tasks | 2 files |
-| Phase 02-pipeline-integration P01 | 7 | 1 tasks | 3 files |
-
-## Accumulated Context
-
-### Decisions
-
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [Init]: Free APIs only — no paid search APIs (DuckDuckGo, SearXNG, free sources only)
-- [Init]: Quality-only scope — no architecture refactoring, no packaging changes
-- [Init]: AI-first design — primary consumers are AI models via MCP, not humans
-- [Phase 01]: Subdomain matching uses two-step lookup (exact netloc then base domain) to handle docs.python.org scoring correctly
-- [Phase 01]: Freshness scoring gated on _FRESHNESS_INTENTS set — code and research always return None per D-09
-- [Phase 02-pipeline-integration]: Freshness weight redistributed proportionally to relevance+authority when freshness_score is None
-- [Phase 02-pipeline-integration]: rapidfuzz added as required dep in requirements.txt; lazy import fallback preserved for missing environments
-
-### Pending Todos
-
-None yet.
-
-### Blockers/Concerns
-
-- [Phase 3]: Optimal reformulation trigger thresholds (quality floor 0.3, consecutive zero-result count 2+) are reasonable defaults but need validation against real DDG behavior — treat as tunable parameters
-- [Phase 3]: Snippet window size for cross-encoder input quality is an open question; resolve empirically during implementation
+- [Phase 3]: Optimal reformulation trigger thresholds need validation against real SearXNG behavior
+- [Phase 3]: Snippet window size for cross-encoder input quality is an open question
 
 ## Session Continuity
 
-Last session: 2026-03-22T05:54:43.066Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-03-22
+Stopped at: Phase 02 complete — pipeline wired, SearXNG backend, snippet-only responses
 Resume file: None

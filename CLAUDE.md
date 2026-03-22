@@ -32,7 +32,10 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 - `httpx[http2]>=0.27.0` - Async HTTP/2 client used in `async_scraper.py` for connection-pooled scraping
 - `playwright>=1.40.0` - Headless Chromium for JS-heavy sites; lazy-initialized via `LazyBrowserPool` singleton
 - `beautifulsoup4>=4.12.0` + `lxml>=4.9.1` - HTML parsing and content extraction
-- `duckduckgo-search>=6.0.0` (installed: 8.1.1) - Primary search backend, no API key required
+- `trafilatura>=2.0.0` - Content extraction for snippet scoring in SnippetExtractor
+- `rank-bm25>=0.2.2` - BM25 relevance scoring in SnippetExtractor
+- `rapidfuzz>=3.0.0` - Near-duplicate detection in QualityScorer dedup
+- `scikit-learn>=1.0.0` - TF-IDF vectorization in SnippetExtractor
 - `click>=8.1.0` - Interactive CLI in `scrape_premium.py`
 - `defusedxml>=0.7.1` - Safe XML parsing in `sitemap_registry.py` (XXE protection)
 - `python-dateutil>=2.8.0` - Date parsing
@@ -41,13 +44,13 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 ## Key Dependencies
 - `mcp 1.26.0` - The entire server architecture; exposes tools via `mcp.server.Server` and `mcp.server.stdio.stdio_server`
 - `playwright` - JS rendering falls back silently if not installed; Chromium binaries stored in `.playwright/` (gitignored, users install manually)
-- `duckduckgo-search 8.1.1` - Only required external dependency for search; no API key
+- `SearXNG` (Docker) - Self-hosted meta-search engine; aggregates Google, Bing, 70+ engines; the only search backend
 - `sqlite3` (stdlib) - Two SQLite databases for persistent caching: `~/.scraper_search_cache.db` (search results, 24 hr TTL) and `~/.scraper_sitemap_registry.db` (sitemaps)
 - `httpx[http2]` - HTTP/2 multiplexing in `async_scraper.py` (separate from the sync `requests` usage)
 ## Configuration
 - No `.env` file in use; no `python-dotenv` dependency
-- `BRAVE_SEARCH_API_KEY` - Optional env var for Brave Search backend (`backends/brave.py`)
-- SearXNG backend configured by instantiation (`SearXNGBackend(base_url="http://localhost:8080")`)
+- SearXNG backend at `http://localhost:8080` (configurable via `SEARXNG_URL` env var)
+- SearXNG config at `~/searxng/settings.yml` (mounted into Docker container)
 - User CLI preferences stored in `~/.scraper_config.json` (owner-only `0600` permissions)
 - No build system; plain Python scripts, run directly
 - Windows launcher: `scrape.bat` (activates `venv\Scripts\activate.bat`, runs `scrape_premium.py`)
@@ -57,7 +60,7 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 - Optional: Playwright Chromium browsers (`playwright install chromium`)
 - Optional: Node.js (for `justscrape-worker.js` client)
 - Runs as an MCP stdio server; launched by Claude Desktop or any MCP-compliant host
-- No web server, no ports, no Docker required
+- Docker required for SearXNG search backend (`sudo docker start searxng`)
 - Persistent cache files written to `~/` (home directory)
 <!-- GSD:stack-end -->
 
@@ -105,58 +108,39 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
-## Pattern
+## Quality Pipeline (search_and_scrape)
+The core pipeline that runs when an AI calls `search_and_scrape`:
+1. **QueryAnalyzer** (`query_analyzer.py`) — intent classification, query expansion, entity extraction
+2. **SearXNG** (`web_search.py` → `backends/searxng.py`) — self-hosted meta-search, Google + Bing + 70 engines
+3. **ResultReranker** (`result_reranker.py`) — per-query-type authority scoring, freshness weighting
+4. **Parallel scrape + SnippetExtractor** (`snippet_extractor.py`) — trafilatura extraction, BM25+TF-IDF chunk scoring
+5. **QualityScorer** (`quality_scorer.py`) — composite scoring (relevance + authority + freshness + position)
+6. **Dedup** (`quality_scorer.deduplicate_results`) — rapidfuzz near-duplicate removal
+
+Content returned is only the relevant extracted chunks (~1,000 tokens), not the full page (~5,000+ tokens).
+
 ## Layers
-### MCP Server (`justscrape_mcp.py` — 815 lines)
+### MCP Server (`justscrape_mcp.py`)
 - Async MCP server using `mcp.server.Server`
 - Exposes 4 tools: `web_search`, `scrape_url`, `search_and_scrape`, `extract_urls`
+- `search_and_scrape` runs the full quality pipeline with graceful fallback
 - 2-layer cache: in-memory L1 (5 min TTL) + SQLite L2 (24 hr)
 - Lazy browser pool for JS rendering (`LazyBrowserPool` singleton)
 - Per-domain rate limiting with exponential backoff
-### Worker (`worker.py` — 517 lines)
-- Standalone CLI worker with empirically-validated content classification
-- Classification engine: `usable | thin | blocked | encoding-failure | empty`
-- Pre-filters search results (skips known-blocked domains)
-- Parallel scraping via `ThreadPoolExecutor`
-### Smart Scraper (`smart_scraper.py` — 1189 lines)
-- Facade that chooses static vs JS scraping automatically
-- Multi-signal JS fallback detection (not just content length)
-- Known JS-heavy domain list (Twitter, Reddit, YouTube, etc.)
-- Source adapters: Wikipedia, GitHub, StackOverflow, YouTube, ArXiv, HackerNews
-- URL validation via `url_validator.validate_url()` at entry points
-### Static Scraper (`web_scraper.py` — 528 lines)
-- requests + BeautifulSoup based extraction
-- HEAD pre-check for content type/size
-- Per-domain rate limiting with `threading.Lock`
-- Robots.txt awareness with caching
-- Content types: clean_text, full_html, structured, links, images, metadata
-### JS Scraper (`js_scraper.py` — 308 lines)
-- Playwright-based browser rendering
-- Configurable resource blocking (ads, trackers)
-- Wait-for-selector and timeout support
-- Optional dependency (lazy import pattern)
-### Async Scraper (`async_scraper.py` — 281 lines)
-- httpx + HTTP/2 async alternative to `web_scraper.py`
-- Per-domain concurrency semaphores (max 2 per domain, 10 global)
-- Connection pooling
-- Drop-in replacement for async contexts
-## Data Flow
-```
-```
-```
-```
-## Entry Points
-- `justscrape_mcp.py` — Primary: MCP server for AI model integration
-- `worker.py` — Secondary: CLI worker with classification
-- `scrape_premium.py` — Alternative: premium scraping features (845 lines)
-## Key Abstractions
-- `ScrapedContent` dataclass — Universal scrape result container
-- `SearchResponse` / `SearchResult` — Search result containers
-- `SearchBackend` ABC — Pluggable search backend interface
-- `MultiSearch` — Backend router (fallback or merge modes)
-- `ContentType` enum — Extraction type selector
-- `RobotsCache` — Per-domain robots.txt caching
-- `LazyBrowserPool` — Thread-safe Playwright singleton
+### Quality Modules
+- `query_analyzer.py` — `AnalyzedQuery` dataclass with intent, confidence, expanded queries, entities
+- `result_reranker.py` — `RankedResult` dataclass with authority/freshness scores, `AUTHORITY_TIERS` per query type
+- `snippet_extractor.py` — `ExtractedSnippet` dataclass with BM25+TF-IDF score, best_sentence
+- `quality_scorer.py` — `ScoredResult` dataclass with composite score, provenance metadata, dedup function
+### Search (`web_search.py`)
+- Single backend: self-hosted SearXNG at `SEARXNG_URL` (default `http://localhost:8080`)
+- 2-layer cache with query operator support (site:, filetype:, date range)
+- Returns `SearchResponse` / `SearchResult` dataclasses
+### Scrapers
+- `smart_scraper.py` — Facade: static vs JS auto-routing, source adapters (Wikipedia, GitHub, SO, etc.)
+- `web_scraper.py` — Static: requests + BeautifulSoup, HEAD pre-check, robots.txt, rate limiting
+- `async_scraper.py` — Async: httpx + HTTP/2, per-domain semaphores, connection pooling
+- `js_scraper.py` — Browser: Playwright (optional dep), resource blocking, wait-for-selector
 ## Cross-Cutting Concerns
 - **SSRF Protection**: `url_validator.py` validates all outbound URLs
 - **Rate Limiting**: Per-domain in both sync and async scrapers

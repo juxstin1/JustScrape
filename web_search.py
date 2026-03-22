@@ -568,43 +568,84 @@ class WebSearch:
 
         start_time = time.time()
 
-        # Try SearXNG first (self-hosted, never rate-limits)
+        def _cache_and_return(response):
+            if self.use_cache and response.success:
+                _search_cache.set(effective_query, num_results, response, date_range=date_range)
+                _persistent_cache.set(effective_query, num_results, response, date_range=date_range)
+            return response
+
+        # SearXNG (self-hosted, no rate limits, aggregates Google + Bing + 70 engines)
         searxng_result = self._search_with_searxng(
             effective_query, num_results, date_range, start_time
         )
         if searxng_result and searxng_result.success and searxng_result.total_results > 0:
-            if self.use_cache:
-                _search_cache.set(effective_query, num_results, searxng_result, date_range=date_range)
-                _persistent_cache.set(effective_query, num_results, searxng_result, date_range=date_range)
-            return searxng_result
+            return _cache_and_return(searxng_result)
 
-        # Fallback: DuckDuckGo
-        # Wait for rate limiter (keyed to DuckDuckGo domain)
-        _rate_limiter.wait("https://duckduckgo.com")
+        # SearXNG is down — return error
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        return SearchResponse(
+            query=effective_query,
+            results=[],
+            total_results=0,
+            search_time_ms=elapsed_ms,
+            source="searxng",
+            success=False,
+            error="SearXNG not reachable. Start it: sudo docker run -d --name searxng -p 8080:8080 -v ~/searxng/settings.yml:/etc/searxng/settings.yml searxng/searxng",
+        )
 
+    def _search_with_ddg_lite(
+        self,
+        query: str,
+        num_results: int,
+        date_range: str,
+        start_time: float,
+    ) -> Optional[SearchResponse]:
+        """Search via DDG lite HTML interface. Most reliable free backend."""
         try:
-            response = self._search_with_ddgs(effective_query, num_results, region, start_time, date_range)
+            from backends.ddg_lite import DDGLiteBackend
+            backend = DDGLiteBackend(timeout=self.timeout)
+            result = backend.search(query, num_results, date_range=date_range)
+            if result.success and result.total_results > 0:
+                return result
+            return None
+        except Exception:
+            return None
 
-            # Treat 0 results as a failure (DDG returns empty when CAPTCHA'd)
-            if response.success and response.total_results == 0:
-                _rate_limiter.failure("https://duckduckgo.com")
-                return self._try_html_fallback(effective_query, num_results, region, start_time, date_range=date_range)
+    def _search_with_google(
+        self,
+        query: str,
+        num_results: int,
+        date_range: str,
+        start_time: float,
+    ) -> Optional[SearchResponse]:
+        """Search via direct Google scraping. Returns None on failure."""
+        try:
+            from backends.google import GoogleBackend
+            backend = GoogleBackend(timeout=self.timeout)
+            result = backend.search(query, num_results, date_range=date_range)
+            if result.success and result.total_results > 0:
+                return result
+            return None
+        except Exception:
+            return None
 
-            _rate_limiter.success("https://duckduckgo.com")
-
-            # Cache to both layers
-            if self.use_cache and response.success:
-                _search_cache.set(effective_query, num_results, response, date_range=date_range)
-                _persistent_cache.set(effective_query, num_results, response, date_range=date_range)
-
-            return response
-
-        except ImportError:
-            return self._try_html_fallback(effective_query, num_results, region, start_time, date_range=date_range)
-
-        except Exception as e:
-            _rate_limiter.failure("https://duckduckgo.com")
-            return self._try_html_fallback(effective_query, num_results, region, start_time, date_range=date_range)
+    def _search_with_public_searxng(
+        self,
+        query: str,
+        num_results: int,
+        date_range: str,
+        start_time: float,
+    ) -> Optional[SearchResponse]:
+        """Search via public SearXNG instances. Returns None on failure."""
+        try:
+            from backends.searxng_public import SearXNGPublicBackend
+            backend = SearXNGPublicBackend(timeout=min(self.timeout, 8))
+            result = backend.search(query, num_results, date_range=date_range)
+            if result.success and result.total_results > 0:
+                return result
+            return None
+        except Exception:
+            return None
 
     def _search_with_searxng(
         self,
