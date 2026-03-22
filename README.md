@@ -194,6 +194,10 @@ If SearXNG isn't running, JustScrape returns a clear error with the docker comma
 - **Concurrency Limits** — semaphore prevents DDoS amplification
 - **215 tests** passing
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history and details on every fix.
+
 ## License
 
 MIT
