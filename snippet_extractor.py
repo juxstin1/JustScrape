@@ -251,7 +251,11 @@ class SnippetExtractor:
         bm25 = BM25Okapi(tokenized_corpus)
         bm25_raw = bm25.get_scores(tokenized_query)
 
-        bm25_max = max(bm25_raw) if max(bm25_raw) > 0 else 1.0
+        # Guard against NaN from degenerate inputs (C5)
+        import math
+        bm25_raw = [0.0 if (math.isnan(s) or math.isinf(s)) else float(s) for s in bm25_raw]
+        bm25_max_val = max(bm25_raw) if bm25_raw else 0.0
+        bm25_max = bm25_max_val if bm25_max_val > 0 else 1.0
         bm25_norm = [s / bm25_max for s in bm25_raw]
 
         # TF-IDF cosine similarity scoring
@@ -265,7 +269,9 @@ class SnippetExtractor:
         except Exception:
             tfidf_scores_raw = [0.0] * len(texts)
 
-        tfidf_max = max(tfidf_scores_raw) if max(tfidf_scores_raw) > 0 else 1.0
+        tfidf_scores_raw = [0.0 if (math.isnan(s) or math.isinf(s)) else float(s) for s in tfidf_scores_raw]
+        tfidf_max_val = max(tfidf_scores_raw) if tfidf_scores_raw else 0.0
+        tfidf_max = tfidf_max_val if tfidf_max_val > 0 else 1.0
         tfidf_scores = [s / tfidf_max for s in tfidf_scores_raw]
 
         # Blend scores — NO length component (Pitfall P2)

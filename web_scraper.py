@@ -67,26 +67,41 @@ class RobotsCache:
         """Check if URL is allowed by robots.txt. Returns True on failure (permissive)."""
         try:
             domain = urlparse(url).netloc.lower()
-            with cls._lock:
-                if domain not in cls._cache:
-                    # Evict oldest entry if at capacity
-                    if len(cls._cache) >= cls._MAX_SIZE:
-                        oldest = next(iter(cls._cache))
-                        del cls._cache[oldest]
-                    rp = RobotFileParser()
-                    robots_url = f"https://{domain}/robots.txt"
-                    rp.set_url(robots_url)
-                    try:
-                        rp.read()
-                    except Exception:
-                        cls._cache[domain] = None
-                        return True
-                    cls._cache[domain] = rp
 
-                rp = cls._cache[domain]
-                if rp is None:
-                    return True
-                return rp.can_fetch(cls._user_agent, url)
+            # Check cache first (lock only for read)
+            with cls._lock:
+                if domain in cls._cache:
+                    entry = cls._cache[domain]
+                    rp = entry[0] if entry else None
+                    ts = entry[1] if entry else 0
+                    # TTL: re-fetch after 24 hours
+                    if time.time() - ts < 86400:
+                        if rp is None:
+                            return True
+                        return rp.can_fetch(cls._user_agent, url)
+
+            # Fetch robots.txt OUTSIDE the lock (with short timeout)
+            rp = RobotFileParser()
+            robots_url = f"https://{domain}/robots.txt"
+            rp.set_url(robots_url)
+            try:
+                import urllib.request
+                with urllib.request.urlopen(robots_url, timeout=3) as resp:
+                    raw = resp.read(100_000).decode("utf-8", errors="replace")
+                    rp.parse(raw.splitlines())
+            except Exception:
+                rp = None
+
+            # Store result (lock only for write)
+            with cls._lock:
+                if len(cls._cache) >= cls._MAX_SIZE:
+                    oldest = next(iter(cls._cache))
+                    del cls._cache[oldest]
+                cls._cache[domain] = (rp, time.time())
+
+            if rp is None:
+                return True
+            return rp.can_fetch(cls._user_agent, url)
         except Exception:
             return True
 
@@ -127,6 +142,13 @@ def head_pre_check(url: str, session: requests.Session = None, timeout: int = 5)
             "content_type": resp.headers.get('content-type', ''),
             "content_length": resp.headers.get('content-length', ''),
         }
+
+        # SSRF: re-validate the final URL after redirects
+        if resp.url != url:
+            from url_validator import validate_url as _validate_url
+            url_ok, reason = _validate_url(resp.url)
+            if not url_ok:
+                return False, {**info, "reason": f"redirect_ssrf:{reason}"}
 
         # Block on auth/forbidden/rate-limited
         if resp.status_code in (401, 403, 429, 451):
@@ -253,8 +275,17 @@ class WebScraper:
         self._rate_limit_wait(url)
 
         try:
-            response = self.session.get(url, timeout=self.timeout)
-            return response.text, response.status_code
+            _MAX_RESPONSE_SIZE = 10 * 1024 * 1024  # 10MB
+            response = self.session.get(url, timeout=self.timeout, stream=True)
+            chunks = []
+            total = 0
+            for chunk in response.iter_content(chunk_size=65536, decode_unicode=True):
+                if chunk:
+                    total += len(chunk)
+                    if total > _MAX_RESPONSE_SIZE:
+                        break
+                    chunks.append(chunk)
+            return "".join(chunks), response.status_code
         except requests.RequestException as e:
             return None, 0
     
