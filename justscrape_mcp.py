@@ -531,10 +531,24 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 async def handle_web_search(arguments: dict) -> CallToolResult:
     """Handle web_search tool with operator support"""
     query = arguments.get("query", "")
-    num_results = min(arguments.get("num_results", 10), 25)
+    if not isinstance(query, str):
+        query = str(query) if query is not None else ""
+
+    try:
+        num_results = int(arguments.get("num_results", 10))
+    except (TypeError, ValueError):
+        num_results = 10
+    num_results = max(1, min(num_results, 25))
+
     site = arguments.get("site")
+    if site is not None:
+        site = str(site)
     filetype = arguments.get("filetype")
+    if filetype is not None:
+        filetype = str(filetype)
     date_range = arguments.get("date_range")
+    if date_range is not None:
+        date_range = str(date_range)
     exclude_sites = arguments.get("exclude_sites")
 
     if not query or len(query) > 1000:
@@ -650,10 +664,27 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
     Graceful fallback to old behavior if new pipeline fails.
     """
     query = arguments.get("query", "")
-    num_results = min(arguments.get("num_results", 3), 5)
-    max_content_length = min(arguments.get("max_content_length", 5000), 100000)
+    if not isinstance(query, str):
+        query = str(query) if query is not None else ""
+
+    try:
+        num_results = int(arguments.get("num_results", 3))
+    except (TypeError, ValueError):
+        num_results = 3
+    num_results = max(1, min(num_results, 5))
+
+    try:
+        max_content_length = int(arguments.get("max_content_length", 5000))
+    except (TypeError, ValueError):
+        max_content_length = 5000
+    max_content_length = max(100, min(max_content_length, 100000))
+
     site = arguments.get("site")
+    if site is not None:
+        site = str(site)
     date_range = arguments.get("date_range")
+    if date_range is not None:
+        date_range = str(date_range)
 
     if not query or len(query) > 1000:
         return CallToolResult(
