@@ -23,19 +23,19 @@ JustScrape is an MCP server that gives AI models (Claude, GPT, etc.) web search 
 - ✓ Sitemap-based URL discovery — existing
 - ✓ Source-specific adapters (Wikipedia, GitHub, SO, etc.) — existing
 - ✓ MCP server with 4 tools — existing
+- ✓ Query-type detection — rules-based intent classification (code/research/news/how-to/lookup/comparison) — Phase 1
+- ✓ Smart query reformulation — expansion with synonyms, related terms, abbreviation resolution — Phase 1
+- ✓ Source authority scoring — 5-tier query-type-aware domain authority maps — Phase 1
+- ✓ Snippet-level extraction — trafilatura + hybrid chunking + BM25/TF-IDF scoring — Phase 1
+- ✓ Precision content extraction — sentence-level semantic matching for exact answers — Phase 1
+- ✓ Domain-aware search strategies — per-query-type authority maps and freshness weighting — Phase 1
 
 ### Active
 
-- [ ] Smart query reformulation — understand intent, expand/refine queries for better results
-- [ ] Relevance-based result ranking — re-rank search results by actual relevance to query intent
-- [ ] Precision content extraction — extract the specific relevant section, not the whole page
 - [ ] Multi-source synthesis — combine information from multiple pages into a coherent answer
-- [ ] Query-type detection — recognize coding questions vs research vs news and route accordingly
-- [ ] Source authority scoring — prefer authoritative sources (official docs, primary sources)
-- [ ] Snippet-level extraction — return the exact paragraph/code block that answers the question
+- [ ] Relevance-based result ranking — composite scoring wired into live pipeline
 - [ ] Result quality scoring — score each result on relevance, freshness, authority before returning
 - [ ] Intelligent retry with reformulation — when results are poor, automatically reformulate and retry
-- [ ] Domain-aware search strategies — use different approaches for code, research, and news queries
 
 ### Out of Scope
 
