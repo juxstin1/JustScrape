@@ -9,19 +9,14 @@ Instances are tried in random order; dead/blocked ones are
 temporarily deprioritized via a simple cooldown mechanism.
 """
 
-import sys
-import os
 import time
 import random
 import threading
 
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.append(_project_root)
 
 import requests
-from web_search import SearchResponse, SearchResult
-from backends.base import SearchBackend
+from ..web_search import SearchResponse, SearchResult
+from .base import SearchBackend
 
 # Known public SearXNG instances that serve JSON
 # Curated for reliability — update periodically

@@ -5,16 +5,11 @@ Wraps the existing WebSearch class as a SearchBackend for use with MultiSearch.
 Free, no API key required.
 """
 
-import sys
-import os
 
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.append(_project_root)
 
 import time
-from web_search import SearchResponse, SearchResult, WebSearch
-from backends.base import SearchBackend
+from ..web_search import SearchResponse, SearchResult, WebSearch
+from .base import SearchBackend
 
 
 class DuckDuckGoBackend(SearchBackend):

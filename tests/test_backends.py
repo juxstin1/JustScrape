@@ -1,8 +1,8 @@
 """Tests for search backend adapters."""
 
 import pytest
-from backends.base import SearchBackend, MultiSearch
-from web_search import SearchResponse, SearchResult
+from justscrape.backends.base import SearchBackend, MultiSearch
+from justscrape.web_search import SearchResponse, SearchResult
 
 
 class FakeBackend(SearchBackend):
@@ -80,17 +80,17 @@ class TestBraveBackend:
     """Test Brave backend configuration."""
 
     def test_not_available_without_key(self):
-        from backends.brave import BraveSearchBackend
+        from justscrape.backends.brave import BraveSearchBackend
         b = BraveSearchBackend(api_key="")
         assert b.is_available() is False
 
     def test_available_with_key(self):
-        from backends.brave import BraveSearchBackend
+        from justscrape.backends.brave import BraveSearchBackend
         b = BraveSearchBackend(api_key="test-key")
         assert b.is_available() is True
 
     def test_returns_error_without_key(self):
-        from backends.brave import BraveSearchBackend
+        from justscrape.backends.brave import BraveSearchBackend
         b = BraveSearchBackend(api_key="")
         result = b.search("test")
         assert not result.success
@@ -101,10 +101,10 @@ class TestDuckDuckGoBackend:
     """Test DuckDuckGo backend."""
 
     def test_is_available(self):
-        from backends.duckduckgo import DuckDuckGoBackend
+        from justscrape.backends.duckduckgo import DuckDuckGoBackend
         b = DuckDuckGoBackend()
         assert b.is_available() is True
 
     def test_name(self):
-        from backends.duckduckgo import DuckDuckGoBackend
+        from justscrape.backends.duckduckgo import DuckDuckGoBackend
         assert DuckDuckGoBackend.name == "duckduckgo"

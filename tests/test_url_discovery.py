@@ -13,7 +13,7 @@ class TestURLDiscovery:
 
     def _make_discovery(self, tmpdir):
         """Create a URLDiscovery instance with temp storage."""
-        from url_discovery import URLDiscovery
+        from justscrape.url_discovery import URLDiscovery
         discovery = URLDiscovery()
         discovery.storage_dir = Path(tmpdir)
         discovery.sources_file = Path(tmpdir) / 'sources.json'
@@ -45,7 +45,7 @@ class TestURLDiscovery:
             assert len(discovery.get_sources()) == 0
 
     def test_junk_filter(self):
-        from url_discovery import URLDiscovery
+        from justscrape.url_discovery import URLDiscovery
         discovery = URLDiscovery.__new__(URLDiscovery)
         urls = [
             "https://example.com/page",
@@ -93,5 +93,5 @@ class TestURLDiscovery:
             assert stats["total_discovered"] == 0
 
     def test_max_discovered_urls_cap(self):
-        from url_discovery import MAX_DISCOVERED_URLS
+        from justscrape.url_discovery import MAX_DISCOVERED_URLS
         assert MAX_DISCOVERED_URLS == 100000

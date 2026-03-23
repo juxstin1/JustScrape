@@ -16,9 +16,9 @@ import pytest
 from dataclasses import dataclass
 from typing import Optional, List
 
-from result_reranker import RankedResult
-from snippet_extractor import ExtractedSnippet
-from query_analyzer import AnalyzedQuery
+from justscrape.result_reranker import RankedResult
+from justscrape.snippet_extractor import ExtractedSnippet
+from justscrape.query_analyzer import AnalyzedQuery
 
 
 # -----------------------------------------------------------------------
@@ -82,7 +82,7 @@ def make_query(
 # Import under test (must succeed before tests run)
 # -----------------------------------------------------------------------
 
-from quality_scorer import QualityScorer, ScoredResult, deduplicate_results
+from justscrape.quality_scorer import QualityScorer, ScoredResult, deduplicate_results
 
 
 # -----------------------------------------------------------------------

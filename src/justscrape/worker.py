@@ -31,8 +31,8 @@ import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from web_search import search_full, should_scrape, relevance_score
-from web_scraper import WebScraper, ContentType
+from .web_search import search_full, should_scrape, relevance_score
+from .web_scraper import WebScraper, ContentType
 
 # Lazy import SmartScraper to avoid Playwright requirement at startup
 _smart_scraper = None
@@ -42,7 +42,7 @@ def get_smart_scraper():
     global _smart_scraper
     if _smart_scraper is None:
         try:
-            from smart_scraper import SmartScraper
+            from .smart_scraper import SmartScraper
             _smart_scraper = SmartScraper()
         except ImportError:
             _smart_scraper = "static_only"

@@ -5,17 +5,9 @@ All search backends implement SearchBackend.search() and return
 web_search.SearchResponse objects for interoperability.
 """
 
-import sys
-import os
-
-# Ensure project root is importable (safe: only adds if not already present)
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.append(_project_root)
-
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from web_search import SearchResponse, SearchResult, merge_search_results
+from ..web_search import SearchResponse, SearchResult, merge_search_results
 
 
 class SearchBackend(ABC):

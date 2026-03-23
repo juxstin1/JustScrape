@@ -1,39 +1,28 @@
 #!/usr/bin/env python3
 """
-JustScrape MCP Server - Web Search & Scraping Capability Worker
+JustScrape MCP Server - Web Search & Scraping for AI
 
 This MCP server exposes web search and scraping tools for AI models.
-Following the TOOL-worker architecture:
-- Deterministic execution
-- No reasoning, just capabilities
-- Structured input/output
-- Fail loudly with metadata
+Search uses SearXNG (self-hosted meta-search) with automatic fallback
+to DuckDuckGo and public SearXNG instances.
 
 Tools exposed:
-- web_search: Free SERP-style search via DuckDuckGo (with operators)
+- web_search: Multi-engine search with fallback chain (with operators)
 - scrape_url: Clean content extraction from any URL
 - search_and_scrape: Search + fetch top results in one call (parallel)
 - extract_urls: Extract links from a page
-
-Features:
-- 2-layer cache: in-memory (5 min) + SQLite persistent (24 hr)
-- Per-domain rate limiting with exponential backoff
-- Parallel scraping of search results (asyncio.gather)
-- Snippet pre-filtering to skip known-blocked domains
-- HEAD pre-check before full scraping
-- Relevance scoring to rank scraped results
-- Query operators (site:, filetype:, date range, exclude)
-- Lazy browser pool for JS rendering (only init when needed)
+- get_stats: Cache and browser pool status
 
 Usage:
-    python justscrape_mcp.py
+    justscrape              # via entry point
+    python -m justscrape    # via module
 
-Or add to Claude Desktop config:
+Or add to any MCP-compatible AI client:
     {
         "mcpServers": {
             "justscrape": {
-                "command": "python",
-                "args": ["/path/to/justscrape_mcp.py"]
+                "command": "uvx",
+                "args": ["justscrape"]
             }
         }
     }
@@ -54,21 +43,21 @@ from mcp.types import (
 )
 
 # Import our modules
-from web_search import (
+from .web_search import (
     WebSearch,
     search_full,
     get_cache_stats,
     should_scrape,
     relevance_score,
 )
-from smart_scraper import SmartScraper, scrape_article
-from url_validator import validate_url
+from .smart_scraper import SmartScraper, scrape_article
+from .url_validator import validate_url
 
 # Phase 2 quality pipeline components
-from query_analyzer import QueryAnalyzer, AnalyzedQuery
-from result_reranker import ResultReranker, RankedResult
-from snippet_extractor import SnippetExtractor, ExtractedSnippet
-from quality_scorer import QualityScorer, ScoredResult, deduplicate_results
+from .query_analyzer import QueryAnalyzer, AnalyzedQuery
+from .result_reranker import ResultReranker, RankedResult
+from .snippet_extractor import SnippetExtractor, ExtractedSnippet
+from .quality_scorer import QualityScorer, ScoredResult, deduplicate_results
 
 
 class LazyBrowserPool:
@@ -188,7 +177,7 @@ class PooledSmartScraper(SmartScraper):
 
     def scrape(self, url, content_types=None, force_method=None):
         """Override to use pooled browser for JS scraping"""
-        from web_scraper import ContentType, ScrapedContent
+        from .web_scraper import ContentType, ScrapedContent
 
         if content_types is None:
             content_types = [ContentType.CLEAN_TEXT, ContentType.METADATA]
@@ -238,7 +227,7 @@ class PooledSmartScraper(SmartScraper):
 
     def _scrape_with_pooled_browser(self, url, content_types):
         """Scrape using pooled browser"""
-        from web_scraper import ScrapedContent, ContentType
+        from .web_scraper import ScrapedContent, ContentType
         from bs4 import BeautifulSoup
         from urllib.parse import urlparse
 
@@ -337,7 +326,8 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="web_search",
-            description="""Search the web using DuckDuckGo (free, no API key needed).
+            description="""Search the web using multiple engines (free, no API key needed).
+Uses SearXNG if available, falls back to DuckDuckGo automatically.
 Returns SERP-style results with titles, URLs, and snippets.
 Results are cached in memory (5 min) and on disk (24 hr).
 Supports search operators: site restriction, filetype, date range, domain exclusion.
@@ -406,7 +396,7 @@ Returns: JSON with url, title, content, and metadata.""",
 Combines web_search + scrape_url for efficient research.
 
 Flow:
-1. Search DuckDuckGo for the query
+1. Search the web (SearXNG or DuckDuckGo fallback)
 2. Pre-filter: skip known-blocked domains and non-content URLs
 3. HEAD pre-check: verify pages are reachable HTML before scraping
 4. Scrape results in parallel (not sequentially)
@@ -1039,7 +1029,7 @@ async def handle_extract_urls(arguments: dict) -> CallToolResult:
             isError=True,
         )
 
-    from web_scraper import WebScraper, ContentType
+    from .web_scraper import WebScraper, ContentType
     from urllib.parse import urlparse
 
     loop = asyncio.get_running_loop()

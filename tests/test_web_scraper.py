@@ -1,5 +1,5 @@
-import web_scraper
-from web_scraper import WebScraper, head_pre_check
+import justscrape.web_scraper as web_scraper
+from justscrape.web_scraper import WebScraper, head_pre_check
 
 
 def test_head_pre_check_blocks_non_html_content():

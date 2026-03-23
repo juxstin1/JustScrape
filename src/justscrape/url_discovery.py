@@ -9,7 +9,7 @@ import stat
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
-from web_scraper import WebScraper
+from .web_scraper import WebScraper
 from bs4 import BeautifulSoup
 
 

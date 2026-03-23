@@ -9,7 +9,7 @@ class TestSitemapRegistry:
 
     def _make_registry(self, tmpdir=None):
         import tempfile, os
-        from sitemap_registry import SitemapRegistry
+        from justscrape.sitemap_registry import SitemapRegistry
         if tmpdir is None:
             tmpdir = tempfile.mkdtemp()
         db_path = os.path.join(tmpdir, "test_sitemap.db")
@@ -106,9 +106,9 @@ class TestSitemapConstants:
     """Test safety constants."""
 
     def test_child_sitemap_cap(self):
-        from sitemap_registry import MAX_CHILD_SITEMAPS
+        from justscrape.sitemap_registry import MAX_CHILD_SITEMAPS
         assert MAX_CHILD_SITEMAPS <= 100
 
     def test_max_sitemap_size(self):
-        from sitemap_registry import MAX_SITEMAP_SIZE
+        from justscrape.sitemap_registry import MAX_SITEMAP_SIZE
         assert MAX_SITEMAP_SIZE == 50 * 1024 * 1024

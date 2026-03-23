@@ -1,7 +1,7 @@
 """Tests for worker.py tool dispatch and classification."""
 
 import pytest
-from worker import classify_content, TOOLS
+from justscrape.worker import classify_content, TOOLS
 
 
 class TestClassifyContent:

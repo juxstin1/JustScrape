@@ -9,17 +9,13 @@ Configure:
     # Or set BRAVE_SEARCH_API_KEY environment variable
 """
 
-import sys
 import os
 
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.append(_project_root)
 
 import time
 import requests
-from web_search import SearchResponse, SearchResult
-from backends.base import SearchBackend
+from ..web_search import SearchResponse, SearchResult
+from .base import SearchBackend
 
 
 class BraveSearchBackend(SearchBackend):

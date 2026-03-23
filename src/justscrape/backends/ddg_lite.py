@@ -8,20 +8,14 @@ is far more reliable for programmatic access.
 No API key, no external library beyond requests + BeautifulSoup.
 """
 
-import sys
-import os
 import time
 import random
 from urllib.parse import urlparse, parse_qs, unquote
 
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.append(_project_root)
-
 import requests
 from bs4 import BeautifulSoup
-from web_search import SearchResponse, SearchResult
-from backends.base import SearchBackend
+from ..web_search import SearchResponse, SearchResult
+from .base import SearchBackend
 
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
