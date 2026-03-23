@@ -72,7 +72,6 @@ After that, your AI can call `search_and_scrape` and get answers from the web.
 
 ```json
 {
-  "success": true,
   "query": "python dict.get() vs [] KeyError",
   "results": [
     {
@@ -88,8 +87,7 @@ After that, your AI can call `search_and_scrape` and get answers from the web.
         "position": 0.70
       },
       "source_type": "forum",
-      "confidence": 0.85,
-      "scraped_successfully": true
+      "confidence": 0.85
     }
   ],
   "total_results": 3
@@ -164,6 +162,7 @@ The difference is snippet extraction. Raw scraping dumps the full page. JustScra
 | `web_search` | Just the search results, no scraping |
 | `scrape_url` | Scrape a single URL |
 | `extract_urls` | Pull all links from a page |
+| `get_stats` | Cache and browser pool status for debugging |
 
 ## SearXNG
 
