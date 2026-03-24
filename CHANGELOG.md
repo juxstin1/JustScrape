@@ -4,6 +4,10 @@ All notable changes to JustScrape are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **detected_date always None** — pipeline now passes parsed dates from reranker through to scored output instead of hardcoding None (3d5130a)
+- **Playwright Chromium binary missing** — browsers weren't installed, causing silent fallback to static-only scraping on every JS-rendered page. Official docs pages returned "Loading..." or empty content while the authority reranker promoted them to the top — worst results ranked highest
+
 ## [2.0.0] — 2026-03-22
 
 Complete rewrite of the search quality pipeline. JustScrape now returns the exact relevant snippet instead of dumping full pages.

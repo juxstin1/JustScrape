@@ -1,3 +1,9 @@
+---
+title: Developer Guide & Future Direction
+scope: architecture, quality pipeline, roadmap, contributing
+audience: contributors, AI agents working on the codebase
+---
+
 # JustScrape — Developer Guide & Future Direction
 
 ## Current State (March 2026)
