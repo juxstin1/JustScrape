@@ -1,7 +1,7 @@
 """Tests for query_analyzer.py — covers QUERY-01 through QUERY-04."""
 
 import pytest
-from query_analyzer import QueryAnalyzer, AnalyzedQuery
+from justscrape.query_analyzer import QueryAnalyzer, AnalyzedQuery
 
 
 class TestIntentClassification:

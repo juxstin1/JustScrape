@@ -26,7 +26,7 @@ except ImportError:
     HTTPX_AVAILABLE = False
 
 from bs4 import BeautifulSoup
-from web_scraper import ScrapedContent, ContentType
+from .web_scraper import ScrapedContent, ContentType
 
 
 # Per-domain concurrency semaphores
@@ -139,7 +139,7 @@ class AsyncWebScraper:
         Returns (html, status_code, info).
         """
         # SSRF protection: validate URL before any outbound request
-        from url_validator import validate_url
+        from .url_validator import validate_url
         url_ok, url_reason = validate_url(url)
         if not url_ok:
             return None, 0, {"reason": f"blocked:{url_reason}"}

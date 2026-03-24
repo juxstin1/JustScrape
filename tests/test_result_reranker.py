@@ -2,7 +2,7 @@
 
 import pytest
 from datetime import datetime, timedelta
-from result_reranker import ResultReranker, RankedResult
+from justscrape.result_reranker import ResultReranker, RankedResult
 
 
 class TestAuthorityScoring:

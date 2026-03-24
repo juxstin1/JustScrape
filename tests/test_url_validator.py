@@ -1,7 +1,7 @@
 """Tests for centralized URL validation (SSRF protection)."""
 
 import pytest
-from url_validator import validate_url, is_safe_url, validate_url_or_raise
+from justscrape.url_validator import validate_url, is_safe_url, validate_url_or_raise
 
 
 class TestSchemeValidation:

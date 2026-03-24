@@ -145,7 +145,7 @@ def head_pre_check(url: str, session: requests.Session = None, timeout: int = 5)
 
         # SSRF: re-validate the final URL after redirects
         if resp.url != url:
-            from url_validator import validate_url as _validate_url
+            from .url_validator import validate_url as _validate_url
             url_ok, reason = _validate_url(resp.url)
             if not url_ok:
                 return False, {**info, "reason": f"redirect_ssrf:{reason}"}
@@ -257,7 +257,7 @@ class WebScraper:
         Returns (html_content, status_code)
         """
         # SSRF protection: validate URL before any outbound request
-        from url_validator import validate_url
+        from .url_validator import validate_url
         url_ok, url_reason = validate_url(url)
         if not url_ok:
             return None, 0

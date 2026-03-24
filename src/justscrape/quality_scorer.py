@@ -34,9 +34,9 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
-from result_reranker import RankedResult
-from snippet_extractor import ExtractedSnippet
-from query_analyzer import AnalyzedQuery
+from .result_reranker import RankedResult
+from .snippet_extractor import ExtractedSnippet
+from .query_analyzer import AnalyzedQuery
 
 
 # ---------------------------------------------------------------------------

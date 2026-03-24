@@ -1,7 +1,7 @@
 """Tests for async scraper module."""
 
 import pytest
-from async_scraper import _get_domain_semaphore, _domain_semaphores, _MAX_DOMAIN_SEMAPHORES
+from justscrape.async_scraper import _get_domain_semaphore, _domain_semaphores, _MAX_DOMAIN_SEMAPHORES
 
 
 class TestDomainSemaphores:
@@ -45,12 +45,12 @@ class TestAsyncWebScraperImport:
     """Test that async scraper can be imported and configured."""
 
     def test_httpx_availability_flag(self):
-        from async_scraper import HTTPX_AVAILABLE
+        from justscrape.async_scraper import HTTPX_AVAILABLE
         # httpx should be installed per requirements.txt
         assert HTTPX_AVAILABLE is True
 
     def test_scraper_creation(self):
-        from async_scraper import AsyncWebScraper
+        from justscrape.async_scraper import AsyncWebScraper
         scraper = AsyncWebScraper()
         assert scraper.client is not None
         assert scraper._closed is False

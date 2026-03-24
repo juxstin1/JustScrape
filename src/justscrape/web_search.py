@@ -13,6 +13,7 @@ Features:
 - Query operator support (site:, date range, filetype)
 """
 
+import sys
 import time
 import hashlib
 import threading
@@ -99,7 +100,7 @@ class SearchCache:
                         del self._cache[key]
                         return None
                     # Filter out any cached results with private/blocked URLs
-                    from url_validator import validate_url as _val_url
+                    from .url_validator import validate_url as _val_url
                     safe_results = [
                         r for r in response.results
                         if _val_url(r.url)[0]
@@ -584,23 +585,46 @@ class WebSearch:
                 _persistent_cache.set(effective_query, num_results, response, date_range=date_range)
             return response
 
-        # SearXNG (self-hosted, no rate limits, aggregates Google + Bing + 70 engines)
+        # Search backend fallback chain:
+        # 1. Local SearXNG (best quality — self-hosted, aggregates Google + Bing + 70 engines)
+        # 2. DuckDuckGo lite (free, no API key, reliable)
+        # 3. Public SearXNG instances (free, community-hosted)
+
         searxng_result = self._search_with_searxng(
             effective_query, num_results, date_range, start_time
         )
         if searxng_result and searxng_result.success and searxng_result.total_results > 0:
             return _cache_and_return(searxng_result)
 
-        # SearXNG is down — return error
+        # SearXNG unavailable — fall back to DuckDuckGo
+        print(
+            "[justscrape] SearXNG not reachable, falling back to DuckDuckGo. "
+            "For best results: justscrape setup",
+            file=sys.stderr,
+        )
+        ddg_result = self._search_with_ddg_lite(
+            effective_query, num_results, date_range, start_time
+        )
+        if ddg_result and ddg_result.success and ddg_result.total_results > 0:
+            return _cache_and_return(ddg_result)
+
+        # DuckDuckGo failed — try public SearXNG
+        public_result = self._search_with_public_searxng(
+            effective_query, num_results, date_range, start_time
+        )
+        if public_result and public_result.success and public_result.total_results > 0:
+            return _cache_and_return(public_result)
+
+        # All backends failed
         elapsed_ms = int((time.time() - start_time) * 1000)
         return SearchResponse(
             query=effective_query,
             results=[],
             total_results=0,
             search_time_ms=elapsed_ms,
-            source="searxng",
+            source="none",
             success=False,
-            error="SearXNG not reachable. Start it: sudo docker run -d --name searxng -p 8080:8080 -v ~/searxng/settings.yml:/etc/searxng/settings.yml searxng/searxng",
+            error="All search backends failed. Install SearXNG for reliable results: justscrape setup",
         )
 
     def _search_with_ddg_lite(
@@ -612,7 +636,7 @@ class WebSearch:
     ) -> Optional[SearchResponse]:
         """Search via DDG lite HTML interface. Most reliable free backend."""
         try:
-            from backends.ddg_lite import DDGLiteBackend
+            from .backends.ddg_lite import DDGLiteBackend
             backend = DDGLiteBackend(timeout=self.timeout)
             result = backend.search(query, num_results, date_range=date_range)
             if result.success and result.total_results > 0:
@@ -630,7 +654,7 @@ class WebSearch:
     ) -> Optional[SearchResponse]:
         """Search via direct Google scraping. Returns None on failure."""
         try:
-            from backends.google import GoogleBackend
+            from .backends.google import GoogleBackend
             backend = GoogleBackend(timeout=self.timeout)
             result = backend.search(query, num_results, date_range=date_range)
             if result.success and result.total_results > 0:
@@ -648,7 +672,7 @@ class WebSearch:
     ) -> Optional[SearchResponse]:
         """Search via public SearXNG instances. Returns None on failure."""
         try:
-            from backends.searxng_public import SearXNGPublicBackend
+            from .backends.searxng_public import SearXNGPublicBackend
             backend = SearXNGPublicBackend(timeout=min(self.timeout, 8))
             result = backend.search(query, num_results, date_range=date_range)
             if result.success and result.total_results > 0:

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "justscrape"
+version = "2.0.0"
+description = "God-status web search MCP server for AI"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "juxstin1" }]
+keywords = ["mcp", "search", "scraping", "ai", "llm", "claude"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "requests>=2.32.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.1",
+    "httpx[http2]>=0.27.0",
+    "trafilatura>=2.0.0",
+    "rank-bm25>=0.2.2",
+    "scikit-learn>=1.3.0",
+    "rapidfuzz>=3.0.0",
+    "defusedxml>=0.7.1",
+    "python-dateutil>=2.8.0",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.40.0"]
+cli = ["click>=8.1.0", "pyperclip>=1.8.0"]
+ddg = ["duckduckgo-search>=6.0.0"]
+dev = ["pytest", "pytest-asyncio"]
+
+[project.scripts]
+justscrape = "justscrape:main"
+
+[project.urls]
+Homepage = "https://github.com/juxstin1/JustScrape"
+Repository = "https://github.com/juxstin1/JustScrape"
+Issues = "https://github.com/juxstin1/JustScrape/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/justscrape"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

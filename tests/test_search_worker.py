@@ -4,8 +4,8 @@ import sqlite3
 import tempfile
 import time
 
-import worker
-from web_search import (
+import justscrape.worker as worker
+from justscrape.web_search import (
     PersistentSearchCache,
     SearchCache,
     SearchResponse,

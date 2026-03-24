@@ -11,7 +11,7 @@ class TestXXEProtection:
     def _make_registry(self):
         """Create a temp registry for testing."""
         import tempfile, os
-        from sitemap_registry import SitemapRegistry
+        from justscrape.sitemap_registry import SitemapRegistry
         tmpdir = tempfile.mkdtemp()
         return SitemapRegistry(db_path=os.path.join(tmpdir, "test.db"))
 
@@ -69,7 +69,7 @@ class TestXXEProtection:
 
     def test_child_sitemap_cap(self):
         """Verify child sitemaps are capped at MAX_CHILD_SITEMAPS."""
-        from sitemap_registry import MAX_CHILD_SITEMAPS
+        from justscrape.sitemap_registry import MAX_CHILD_SITEMAPS
         registry = self._make_registry()
         # Build sitemap index with 200 child sitemaps
         entries = "".join(

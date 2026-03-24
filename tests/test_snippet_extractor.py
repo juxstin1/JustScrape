@@ -5,7 +5,7 @@ EXTRACT-03 (BM25+TF-IDF blended scoring), EXTRACT-04 (sentence-level matching).
 """
 
 import pytest
-from snippet_extractor import SnippetExtractor, ExtractedSnippet
+from justscrape.snippet_extractor import SnippetExtractor, ExtractedSnippet
 
 
 # ---------------------------------------------------------------------------

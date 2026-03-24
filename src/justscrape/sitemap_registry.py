@@ -21,7 +21,7 @@ import requests
 import hashlib
 import gzip
 from io import BytesIO
-from url_validator import validate_url as _validate_url
+from .url_validator import validate_url as _validate_url
 import os
 import stat
 

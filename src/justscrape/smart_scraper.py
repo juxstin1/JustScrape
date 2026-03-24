@@ -11,10 +11,10 @@ Features:
 
 from typing import Optional, List, Dict, Union
 from dataclasses import dataclass
-from web_scraper import WebScraper, ContentType, ScrapedContent, quick_scrape
-from sitemap_registry import SitemapRegistry
+from .web_scraper import WebScraper, ContentType, ScrapedContent, quick_scrape
+from .sitemap_registry import SitemapRegistry
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
-from url_validator import validate_url as _validate_url
+from .url_validator import validate_url as _validate_url
 import json
 import re
 import requests
@@ -848,12 +848,20 @@ class SmartScraper:
             use_js = True
 
         if use_js:
-            from js_scraper import JavaScriptScraper
-            with JavaScriptScraper() as js_scraper:
-                return js_scraper.scrape(url, content_types)
+            try:
+                from .js_scraper import JavaScriptScraper
+                with JavaScriptScraper() as js_scraper:
+                    return js_scraper.scrape(url, content_types)
+            except (ImportError, Exception):
+                # Playwright not installed or JS scrape failed —
+                # fall through to return static result if available
+                pass
 
-        # Unreachable, but safe fallback to prevent UnboundLocalError
-        return ScrapedContent(url=url)
+        # Return static result if we have one, otherwise empty
+        try:
+            return result
+        except NameError:
+            return ScrapedContent(url=url)
     
     def scrape_to_markdown(self, url: str) -> str:
         """
@@ -1052,7 +1060,7 @@ def compare_scraping_methods(url: str) -> Dict:
     
     # Try JS
     try:
-        from js_scraper import JavaScriptScraper
+        from .js_scraper import JavaScriptScraper
         with JavaScriptScraper() as js_scraper:
             js_result = js_scraper.scrape(url, [ContentType.CLEAN_TEXT])
             results['javascript'] = {

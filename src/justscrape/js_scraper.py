@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright, Page, Browser
 from typing import Optional, Dict, List
 import time
 from dataclasses import dataclass
-from web_scraper import ScrapedContent, ContentType
+from .web_scraper import ScrapedContent, ContentType
 from bs4 import BeautifulSoup
 
 
