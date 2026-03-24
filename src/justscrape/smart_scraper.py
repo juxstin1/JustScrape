@@ -848,12 +848,20 @@ class SmartScraper:
             use_js = True
 
         if use_js:
-            from .js_scraper import JavaScriptScraper
-            with JavaScriptScraper() as js_scraper:
-                return js_scraper.scrape(url, content_types)
+            try:
+                from .js_scraper import JavaScriptScraper
+                with JavaScriptScraper() as js_scraper:
+                    return js_scraper.scrape(url, content_types)
+            except (ImportError, Exception):
+                # Playwright not installed or JS scrape failed —
+                # fall through to return static result if available
+                pass
 
-        # Unreachable, but safe fallback to prevent UnboundLocalError
-        return ScrapedContent(url=url)
+        # Return static result if we have one, otherwise empty
+        try:
+            return result
+        except NameError:
+            return ScrapedContent(url=url)
     
     def scrape_to_markdown(self, url: str) -> str:
         """

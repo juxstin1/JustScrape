@@ -103,7 +103,12 @@ class TestDuckDuckGoBackend:
     def test_is_available(self):
         from justscrape.backends.duckduckgo import DuckDuckGoBackend
         b = DuckDuckGoBackend()
-        assert b.is_available() is True
+        # duckduckgo-search is an optional dep — availability depends on install
+        try:
+            import duckduckgo_search  # noqa: F401
+            assert b.is_available() is True
+        except ImportError:
+            assert b.is_available() is False
 
     def test_name(self):
         from justscrape.backends.duckduckgo import DuckDuckGoBackend
