@@ -230,7 +230,7 @@ class QualityScorer:
             score_breakdown=breakdown,
             source_url=snippet.source_url,
             source_type=self.infer_source_type(ranked.url),
-            detected_date=None,  # Date extraction not in scope for this module
+            detected_date=ranked.detected_date,
             confidence=query.confidence,
             original_position=ranked.original_position,
             is_code=snippet.is_code,
