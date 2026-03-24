@@ -1,11 +1,17 @@
 # JustScrape
 
-Free web search for AI that returns the exact answer, not 25 links.
+[![PyPI](https://img.shields.io/pypi/v/justscrape)](https://pypi.org/project/justscrape/)
+[![CI](https://github.com/juxstin1/JustScrape/actions/workflows/ci.yml/badge.svg)](https://github.com/juxstin1/JustScrape/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/justscrape/)
+
+An MCP server that gives AI models web search and scraping. Returns the exact relevant snippet, not a wall of text.
+
+Perplexity, Tavily, and Exa charge for this. JustScrape does it free with no API keys.
 
 ## Install
 
 ```bash
-# One command — works immediately
 uvx justscrape
 ```
 
@@ -15,7 +21,7 @@ Or with pip:
 pip install justscrape
 ```
 
-Then add to your AI client:
+Add to your AI client:
 
 ```json
 {
@@ -145,37 +151,33 @@ Add to `~/.gemini/settings.json`:
 
 </details>
 
-## What It Does
+## How It Works
 
-You ask an AI model "what's the difference between `dict.get()` and `dict[]` in Python?" The AI calls JustScrape. Here's what happens:
+Your AI asks "what's the difference between `dict.get()` and `dict[]` in Python?" and calls JustScrape:
 
-**1. It understands your question first.** Before searching, it figures out this is a `code` question about `Python` and `dict`. This matters because it changes how results get ranked later — Stack Overflow and docs.python.org will be prioritized over random blogs.
+1. **Query analysis** — classifies as a `code` question about `Python` and `dict`, so Stack Overflow and docs.python.org get priority over blogs
+2. **Multi-engine search** — SearXNG (if set up) queries Google, Bing, and 70+ engines simultaneously. Without SearXNG, falls back to DuckDuckGo. No API keys.
+3. **Authority reranking** — Stack Overflow (authority: 1.0) beats Medium (0.3) for code questions, regardless of Google's ranking
+4. **Snippet extraction** — fetches top pages concurrently, strips to clean text, scores every chunk with BM25 + TF-IDF. A 20,000 char page becomes the 500 chars that answer the question.
+5. **Score and dedup** — composite score (relevance x authority x freshness x position), near-duplicate removal
 
-**2. It searches multiple engines.** SearXNG (if set up) sends your query to Google, Bing, DuckDuckGo, Wikipedia, Stack Overflow, and dozens more — simultaneously. Without SearXNG, it falls back to DuckDuckGo automatically. No API keys required.
-
-**3. It reranks by who actually knows the answer.** Results get reranked by authority for the question type. For a Python code question, Stack Overflow (authority: 1.0) beats a Medium blog post (authority: 0.3), even if Google ranked the blog higher.
-
-**4. It scrapes the pages and greps for the answer.** It fetches the top pages, strips them to clean text, chunks the text into sections, then scores every chunk against your query using BM25 and TF-IDF. A 20,000 character page becomes the 500 characters that actually answer the question.
-
-**5. It scores, deduplicates, and returns.** Each result gets a composite score (relevance x authority x freshness x position). Near-identical snippets get deduplicated. The AI gets ~1,000 tokens of precisely targeted content instead of ~5,000+ tokens of raw page dumps.
-
-## What Comes Back
+**Result:** 3 scored results, ~1,000 tokens of precisely targeted content instead of ~5,000+ tokens of raw page dumps.
 
 ```json
 {
   "query": "python dict.get() vs [] KeyError",
   "results": [
     {
-      "title": "Python dict.get() raises KeyError - Stack Overflow",
+      "title": "Python dict.get() vs bracket notation - Stack Overflow",
       "url": "https://stackoverflow.com/questions/...",
       "content": "dict.get(key, default) returns the default value if key is missing. dict[key] raises KeyError. Use .get() when the key might not exist...",
       "best_sentence": "dict.get(key, default) returns the default value if key is missing instead of raising KeyError",
-      "relevance_score": 0.45,
+      "relevance_score": 0.82,
       "score_breakdown": {
-        "relevance": 0.65,
+        "relevance": 0.88,
         "authority": 1.0,
         "freshness": null,
-        "position": 0.70
+        "position": 0.90
       },
       "source_type": "forum",
       "confidence": 0.85
@@ -190,32 +192,46 @@ You ask an AI model "what's the difference between `dict.get()` and `dict[]` in 
 | Tool | What It Does |
 |------|-------------|
 | `search_and_scrape` | Full pipeline — search, rerank, scrape, extract, score, dedup |
-| `web_search` | Just the search results, no scraping |
-| `scrape_url` | Scrape a single URL |
+| `web_search` | Search results only, no scraping |
+| `scrape_url` | Scrape a single URL to clean text |
 | `extract_urls` | Pull all links from a page |
-| `get_stats` | Cache and browser pool status for debugging |
+| `get_stats` | Cache and browser pool status |
 
 ## Upgrade Search Quality (Optional)
 
-JustScrape works out of the box with DuckDuckGo. For the best results, set up SearXNG — a self-hosted meta-search engine that queries Google, Bing, and 70+ engines from your machine:
+JustScrape works out of the box with DuckDuckGo. For better results, set up SearXNG — a self-hosted meta-search engine that aggregates 70+ engines from your machine:
 
 ```bash
 justscrape setup
 ```
 
-This pulls the SearXNG Docker image and starts it. JustScrape auto-detects it — no config changes needed.
+Pulls the Docker image, starts the container, verifies it's working. JustScrape auto-detects it — no config changes needed.
 
-**Why SearXNG is better:**
+<details>
+<summary>Why SearXNG is better</summary>
+
 - Aggregates Google + Bing + 70 engines (cross-engine agreement = better ranking)
 - Runs on your machine — no rate limits, no CAPTCHAs
-- JustScrape automatically uses it when available, falls back to DuckDuckGo when not
+- JustScrape uses it automatically when available, falls back to DuckDuckGo when not
 
-**Managing SearXNG:**
 ```bash
 sudo docker start searxng    # Start
 sudo docker stop searxng     # Stop
 sudo docker logs searxng     # Debug
 ```
+
+</details>
+
+## Optional: Browser Rendering
+
+For JS-heavy sites (SPAs, dynamic content):
+
+```bash
+pip install "justscrape[browser]"
+playwright install chromium
+```
+
+Without this, JustScrape uses static scraping with automatic fallback — works for most sites.
 
 ## Health Check
 
@@ -223,41 +239,13 @@ sudo docker logs searxng     # Debug
 justscrape doctor
 ```
 
-Reports Python version, MCP SDK, SearXNG status, Playwright availability, and Docker.
-
-## Optional Extras
-
-```bash
-# Browser rendering for JS-heavy sites
-pip install "justscrape[browser]"
-playwright install chromium
-
-# Interactive CLI
-pip install "justscrape[cli]"
-```
-
-## Token Cost
-
-| Results | Tokens | Compared to raw scraping |
-|---------|--------|--------------------------|
-| 1 | ~350 | was ~1,300 |
-| 2 | ~850 | was ~3,500 |
-| 3 | ~1,200 | was ~5,200 |
-
-The difference is snippet extraction. Raw scraping dumps the full page. JustScrape returns only the chunks that matched the query.
-
 ## Security
 
-- **SSRF Protection** — blocks private IPs, non-HTTP schemes, cloud metadata endpoints
-- **XXE Defense** — `defusedxml` for XML parsing
-- **Browser Isolation** — Playwright scrapes in isolated contexts
-- **Size Caps** — 10MB response limit, 1000 char query limit, 100K content limit
-- **Concurrency Limits** — semaphore prevents DDoS amplification
-- **215 tests** passing
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for full version history and details on every fix.
+- **SSRF protection** — blocks private IPs, non-HTTP schemes, cloud metadata endpoints
+- **XXE defense** — `defusedxml` for all XML parsing
+- **Browser isolation** — Playwright scrapes in isolated contexts
+- **Size caps** — 10MB response limit, 1000 char query limit, 100K content limit
+- **Concurrency limits** — per-domain semaphores prevent amplification
 
 ## License
 

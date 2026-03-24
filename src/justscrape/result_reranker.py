@@ -98,6 +98,7 @@ class RankedResult:
     authority_score: float      # 0.0–1.0 from tier map (D-07)
     freshness_score: Optional[float]  # 0.0–1.0 for news; None otherwise (D-09)
     is_blocked: bool            # True if domain is on BLOCKED_DOMAINS (D-10)
+    detected_date: Optional[str] = None  # ISO date string if parsed from snippet
 
 
 class ResultReranker:
@@ -176,16 +177,22 @@ class ResultReranker:
             domain = self._extract_domain(url)
             is_blocked = domain in BLOCKED_DOMAINS
             authority = self.get_authority_score(url, query_type)
-            freshness = self.get_freshness_score(item.get("snippet", ""), query_type)
+            snippet_text = item.get("snippet", "")
+            freshness = self.get_freshness_score(snippet_text, query_type)
+
+            # Extract date from snippet for metadata (independent of freshness scoring)
+            parsed_dt = self._parse_date_from_snippet(snippet_text)
+            date_iso = parsed_dt.date().isoformat() if parsed_dt else None
 
             ranked.append(RankedResult(
                 url=url,
                 title=item.get("title", ""),
-                snippet=item.get("snippet", ""),
+                snippet=snippet_text,
                 original_position=item["position"],
                 authority_score=authority,
                 freshness_score=freshness,
                 is_blocked=is_blocked,
+                detected_date=date_iso,
             ))
 
         # Sort: non-blocked first, then by authority descending; blocked at end
