@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "justscrape"
-version = "2.0.0"
+version = "2.0.1"
 description = "God-status web search MCP server for AI"
 readme = "README.md"
 license = "MIT"
@@ -27,6 +27,7 @@ dependencies = [
     "requests>=2.32.0",
     "beautifulsoup4>=4.12.0",
     "lxml>=4.9.1",
+    "lxml_html_clean>=0.4.2",
     "httpx[http2]>=0.27.0",
     "trafilatura>=2.0.0",
     "rank-bm25>=0.2.2",

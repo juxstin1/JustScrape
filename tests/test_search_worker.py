@@ -56,6 +56,10 @@ def test_build_query_and_should_scrape_filters():
     assert ok is True
     assert reason == "adapter:stackexchange_api"
 
+    ok, reason = should_scrape("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert ok is False
+    assert reason == "unsupported_source:youtube_watch"
+
 
 def test_merge_search_results_dedupes_and_keeps_longest_snippet():
     resp1 = SearchResponse(

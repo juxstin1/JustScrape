@@ -482,7 +482,7 @@ def main():
     send({
         "ok": True,
         "status": "ready",
-        "version": "1.0.0",
+        "version": "2.0.1",
         "tools": list(TOOLS.keys())
     })
 

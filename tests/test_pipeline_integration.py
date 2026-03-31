@@ -8,12 +8,19 @@ Confirms backward compatibility of response structure and MCP tool signatures.
 
 import asyncio
 import json
+import sys
 import unittest.mock as mock
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from justscrape.server import handle_search_and_scrape
+from justscrape.server import (
+    handle_research_with_sources,
+    handle_retrieve_source,
+    handle_search_and_scrape,
+    handle_search_sources,
+    list_tools,
+)
 
 
 class TestPipelineIntegration:
@@ -306,6 +313,110 @@ class TestPipelineIntegration:
                 assert response["success"] is True
 
 
+class TestRefinedToolContract:
+    """Verify the refined LM Studio-friendly MCP contract is exposed and stable."""
+
+    @pytest.mark.asyncio
+    async def test_list_tools_exposes_refined_tools_first(self):
+        tools = await list_tools()
+        names = [tool.name for tool in tools]
+
+        assert "research_with_sources" in names
+        assert "retrieve_source" in names
+        assert "search_sources" in names
+        assert names.index("research_with_sources") < names.index("web_search")
+
+    @pytest.mark.asyncio
+    async def test_handle_search_sources_includes_usage_hint(self):
+        mock_search_result = {
+            "success": True,
+            "query": "python scraping",
+            "results": [
+                {
+                    "url": "https://example.com/article",
+                    "title": "Example Article",
+                    "snippet": "Helpful snippet",
+                    "position": 1,
+                }
+            ],
+            "total_results": 1,
+            "search_time_ms": 25,
+            "source": "duckduckgo",
+            "cached": False,
+        }
+
+        with patch("justscrape.server.search_full", return_value=mock_search_result):
+            result = await handle_search_sources({"query": "python scraping"})
+
+        response = json.loads(result.content[0].text)
+        assert "success" not in response
+        assert response["usage_hint"]["recommended_next_tool"] == "research_with_sources"
+        assert "search_loop_guard" in response["usage_hint"]
+
+    @pytest.mark.asyncio
+    async def test_handle_retrieve_source_returns_classification_and_warning(self):
+        mock_scraped = {
+            "title": "Day 15 | Fishtank Live Season 5 Recap",
+            "content": "Navigation\nShow transcript\nComments\nShare\nSave\nDownload\n"
+            + ("transcript placeholder " * 60),
+            "status_code": 200,
+            "scrape_method": "javascript_pooled",
+        }
+
+        with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+            mock_scraper = MagicMock()
+            mock_scraper.scrape_to_dict.return_value = mock_scraped
+            mock_scraper_class.return_value = mock_scraper
+
+            result = await handle_retrieve_source(
+                {
+                    "url": "https://www.youtube.com/watch?v=abc123",
+                    "allow_javascript": True,
+                }
+            )
+
+        response = json.loads(result.content[0].text)
+        assert response["signals"]["method"] == "javascript"
+        assert "classification" in response
+        assert response["usage_hint"]["recommended_action"] in {
+            "extract_answer_or_cite",
+            "choose_another_source",
+        }
+        assert "warnings" in response
+
+    @pytest.mark.asyncio
+    async def test_handle_research_with_sources_includes_anti_loop_hint(self):
+        mock_result = {
+            "query": "python scraping",
+            "sources": [
+                {
+                    "url": "https://example.com/article",
+                    "title": "Example",
+                    "status": "usable",
+                    "content_length": 1200,
+                    "content": "Useful content",
+                }
+            ],
+            "failures": [],
+            "skipped": [],
+            "metrics": {
+                "total": 1,
+                "usable_count": 1,
+                "usable_rate": 1.0,
+            },
+        }
+
+        with patch(
+            "justscrape.server.research_with_sources_contract",
+            return_value=mock_result,
+        ):
+            result = await handle_research_with_sources({"query": "python scraping"})
+
+        response = json.loads(result.content[0].text)
+        assert response["usage_hint"]["recommended_action"] == "answer_from_sources"
+        assert "search_loop_guard" in response["usage_hint"]
+
+
 class TestNoRegressions:
     """Verify existing Phase 1 tests still pass."""
 
@@ -314,7 +425,7 @@ class TestNoRegressions:
         import subprocess
 
         result = subprocess.run(
-            ["python3", "-m", "pytest", "tests/test_query_analyzer.py", "-x", "-q"],
+            [sys.executable, "-m", "pytest", "tests/test_query_analyzer.py", "-x", "-q"],
             capture_output=True,
             text=True,
         )
@@ -325,7 +436,7 @@ class TestNoRegressions:
         import subprocess
 
         result = subprocess.run(
-            ["python3", "-m", "pytest", "tests/test_result_reranker.py", "-x", "-q"],
+            [sys.executable, "-m", "pytest", "tests/test_result_reranker.py", "-x", "-q"],
             capture_output=True,
             text=True,
         )
@@ -336,7 +447,7 @@ class TestNoRegressions:
         import subprocess
 
         result = subprocess.run(
-            ["python3", "-m", "pytest", "tests/test_snippet_extractor.py", "-x", "-q"],
+            [sys.executable, "-m", "pytest", "tests/test_snippet_extractor.py", "-x", "-q"],
             capture_output=True,
             text=True,
         )
@@ -347,7 +458,7 @@ class TestNoRegressions:
         import subprocess
 
         result = subprocess.run(
-            ["python3", "-m", "pytest", "tests/test_quality_scorer.py", "-x", "-q"],
+            [sys.executable, "-m", "pytest", "tests/test_quality_scorer.py", "-x", "-q"],
             capture_output=True,
             text=True,
         )

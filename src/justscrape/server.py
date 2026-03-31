@@ -34,6 +34,7 @@ import threading
 import time
 import atexit
 from typing import Any, Optional
+from urllib.parse import urlparse
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
@@ -52,6 +53,10 @@ from .web_search import (
 )
 from .smart_scraper import SmartScraper, scrape_article
 from .url_validator import validate_url
+from .worker import (
+    classify_content as classify_retrieved_content,
+    research_with_sources as research_with_sources_contract,
+)
 
 # Phase 2 quality pipeline components
 from .query_analyzer import QueryAnalyzer, AnalyzedQuery
@@ -167,6 +172,81 @@ def _get_scrape_semaphore():
     if _scrape_semaphore is None:
         _scrape_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
     return _scrape_semaphore
+
+
+YOUTUBE_DOMAINS = {"youtube.com", "youtu.be"}
+
+
+def _normalize_bool(value: Any, default: bool) -> bool:
+    """Parse loose boolean-like MCP inputs without surprising truthiness."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def _normalize_scrape_method(raw_method: Optional[str]) -> str:
+    """Collapse scrape method variants into the refined contract values."""
+    method = (raw_method or "unknown").lower()
+    if "javascript" in method:
+        return "javascript"
+    if method in {
+        "reddit_json",
+        "stackexchange_api",
+        "stackexchange_stackprinter",
+        "devto_api",
+        "github_discussions_html",
+    }:
+        return method
+    return "static"
+
+
+def _build_retrieve_payload(url: str, scraped: dict) -> dict:
+    """Shape a scrape result into the refined retrieve_source contract."""
+    content = scraped.get("content")
+    title = scraped.get("title")
+    method = _normalize_scrape_method(
+        scraped.get("scrape_method") or scraped.get("method")
+    )
+    status_code = scraped.get("status_code")
+    signals = {
+        "content_length": len(content) if content else 0,
+        "method": method,
+        "had_html": bool(status_code == 200 or content),
+        "encoding_error": False,
+    }
+    classification = classify_retrieved_content(
+        content=content,
+        title=title,
+        had_html=signals["had_html"],
+        encoding_error=False,
+        method=method,
+    )
+
+    warnings = []
+    domain = urlparse(url).netloc.lower().replace("www.", "")
+    if domain in YOUTUBE_DOMAINS or any(domain.endswith(f".{d}") for d in YOUTUBE_DOMAINS):
+        warnings.append(
+            "Video watch pages often contain site chrome instead of transcript text. Prefer a non-video source or the combined research tool unless you specifically need this page."
+        )
+
+    payload = {
+        "url": url,
+        "title": title,
+        "content": content,
+        "signals": signals,
+        "classification": classification,
+    }
+    if warnings:
+        payload["warnings"] = warnings
+    return payload
 
 
 class PooledSmartScraper(SmartScraper):
@@ -325,14 +405,58 @@ async def list_tools() -> list[Tool]:
     """List available tools"""
     return [
         Tool(
-            name="web_search",
-            description="""Search the web using multiple engines (free, no API key needed).
-Uses SearXNG if available, falls back to DuckDuckGo automatically.
-Returns SERP-style results with titles, URLs, and snippets.
-Results are cached in memory (5 min) and on disk (24 hr).
-Supports search operators: site restriction, filetype, date range, domain exclusion.
-
-Returns: JSON with query, results array, cached flag, and metadata.""",
+            name="research_with_sources",
+            description="""Recommended default for answering questions with web evidence.
+Searches, retrieves, classifies, and separates usable sources from failures in one call.
+Use this instead of looping search-only tools with small query rewrites.
+If usable sources are returned, answer from them instead of searching again.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of candidate results to retrieve (default: 5, max: 10)",
+                        "default": 5,
+                    },
+                    "allow_javascript": {
+                        "type": "boolean",
+                        "description": "Allow JS rendering for difficult pages (default: true)",
+                        "default": True,
+                    },
+                    "max_content_length": {
+                        "type": "integer",
+                        "description": "Max characters per returned source (default: 5000)",
+                        "default": 5000,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="retrieve_source",
+            description="""Retrieve one URL and classify the outcome.
+Returns explicit classification.status: usable, thin, blocked, encoding-failure, or empty.
+If the status is not usable, treat that as a real result and move on instead of retrying the same page.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to retrieve"},
+                    "allow_javascript": {
+                        "type": "boolean",
+                        "description": "Allow Playwright JS rendering if static scraping is insufficient",
+                        "default": True,
+                    },
+                },
+                "required": ["url"],
+            },
+        ),
+        Tool(
+            name="search_sources",
+            description="""Search-only discovery tool.
+Returns ranked URLs and snippets without page content.
+Use at most once to discover candidates, then switch to research_with_sources or retrieve_source.
+Do not loop this with minor query rewrites unless the search intent materially changes.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -365,47 +489,10 @@ Returns: JSON with query, results array, cached flag, and metadata.""",
             },
         ),
         Tool(
-            name="scrape_url",
-            description="""Scrape a URL and extract clean, readable content.
-Automatically handles both static and JavaScript-heavy sites.
-Uses a warm browser pool for JS sites (no cold start penalty).
-
-Features:
-- Auto-detects JS-heavy sites (Twitter, Reddit, etc.)
-- Removes ads, navigation, footers, and other junk
-- Extracts main article content
-- Returns markdown-formatted text
-
-Returns: JSON with url, title, content, and metadata.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "The URL to scrape"},
-                    "include_links": {
-                        "type": "boolean",
-                        "description": "Include extracted links from the page",
-                        "default": False,
-                    },
-                },
-                "required": ["url"],
-            },
-        ),
-        Tool(
             name="search_and_scrape",
-            description="""Search the web AND scrape the top results in one call.
-Combines web_search + scrape_url for efficient research.
-
-Flow:
-1. Search the web (SearXNG or DuckDuckGo fallback)
-2. Pre-filter: skip known-blocked domains and non-content URLs
-3. HEAD pre-check: verify pages are reachable HTML before scraping
-4. Scrape results in parallel (not sequentially)
-5. Score each result for relevance to the query
-6. Return results sorted by relevance score
-
-Perfect for research tasks where you need actual content, not just links.
-
-Returns: JSON with search results, each including full scraped content and relevance_score.""",
+            description="""Legacy alias for research_with_sources.
+Searches and scrapes top results in one call.
+Prefer research_with_sources for new integrations because it separates usable sources from failures.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -428,6 +515,60 @@ Returns: JSON with search results, each including full scraped content and relev
                         "type": "string",
                         "description": "Time filter: 'day', 'week', 'month', or 'year'",
                         "enum": ["day", "week", "month", "year"],
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="scrape_url",
+            description="""Legacy alias for retrieve_source.
+Scrapes a single URL and returns content plus classification hints.
+Prefer retrieve_source for new integrations because it returns an explicit outcome contract.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to scrape"},
+                    "include_links": {
+                        "type": "boolean",
+                        "description": "Include extracted links from the page",
+                        "default": False,
+                    },
+                },
+                "required": ["url"],
+            },
+        ),
+        Tool(
+            name="web_search",
+            description="""Legacy alias for search_sources.
+Search-only discovery tool that returns titles, URLs, and snippets.
+Prefer research_with_sources for question answering, and avoid repeating web_search with minor query rewrites.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query"},
+                    "num_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 10, max: 25)",
+                        "default": 10,
+                    },
+                    "site": {
+                        "type": "string",
+                        "description": "Restrict results to a specific site (e.g., 'docs.python.org')",
+                    },
+                    "filetype": {
+                        "type": "string",
+                        "description": "Restrict to file type (e.g., 'pdf')",
+                    },
+                    "date_range": {
+                        "type": "string",
+                        "description": "Time filter: 'day', 'week', 'month', or 'year'",
+                        "enum": ["day", "week", "month", "year"],
+                    },
+                    "exclude_sites": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of domains to exclude from results",
                     },
                 },
                 "required": ["query"],
@@ -471,7 +612,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     """Handle tool calls"""
 
     try:
-        if name == "web_search":
+        if name == "search_sources":
+            return await handle_search_sources(arguments)
+        elif name == "retrieve_source":
+            return await handle_retrieve_source(arguments)
+        elif name == "research_with_sources":
+            return await handle_research_with_sources(arguments)
+        elif name == "web_search":
             return await handle_web_search(arguments)
         elif name == "scrape_url":
             return await handle_scrape_url(arguments)
@@ -516,6 +663,222 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             ],
             isError=True,
         )
+
+
+async def handle_search_sources(arguments: dict) -> CallToolResult:
+    """Handle refined search_sources tool with anti-loop guidance."""
+    query = arguments.get("query", "")
+    if not isinstance(query, str):
+        query = str(query) if query is not None else ""
+
+    try:
+        num_results = int(arguments.get("num_results", 10))
+    except (TypeError, ValueError):
+        num_results = 10
+    num_results = max(1, min(num_results, 25))
+
+    site = arguments.get("site")
+    if site is not None:
+        site = str(site)
+    filetype = arguments.get("filetype")
+    if filetype is not None:
+        filetype = str(filetype)
+    date_range = arguments.get("date_range")
+    if date_range is not None:
+        date_range = str(date_range)
+    exclude_sites = arguments.get("exclude_sites")
+
+    if not query or len(query) > 1000:
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": "Query is required (max 1000 chars)"}),
+                )
+            ],
+            isError=True,
+        )
+
+    if exclude_sites is not None:
+        if not isinstance(exclude_sites, list):
+            exclude_sites = None
+        else:
+            exclude_sites = [str(s) for s in exclude_sites if s is not None]
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: search_full(
+            query,
+            num_results,
+            site=site,
+            filetype=filetype,
+            date_range=date_range,
+            exclude_sites=exclude_sites,
+        ),
+    )
+
+    if not result.get("success", False):
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": result.get("error", "Search failed")}),
+                )
+            ],
+            isError=True,
+        )
+
+    response = {
+        "query": result.get("query", query),
+        "results": result.get("results", []),
+        "total_results": result.get("total_results", 0),
+        "search_time_ms": result.get("search_time_ms", 0),
+        "source": result.get("source", "duckduckgo"),
+        "cached": result.get("cached", False),
+        "usage_hint": {
+            "recommended_next_tool": "research_with_sources",
+            "legacy_fallback_tool": "search_and_scrape",
+            "search_loop_guard": "Search results are discovery-only. Avoid repeating search_sources/web_search with minor query rewrites; inspect a candidate URL or switch to a research tool.",
+        },
+    }
+
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(response, indent=2))]
+    )
+
+
+async def handle_retrieve_source(arguments: dict) -> CallToolResult:
+    """Handle refined retrieve_source tool with explicit classification."""
+    url = arguments.get("url", "")
+    allow_javascript = _normalize_bool(arguments.get("allow_javascript"), True)
+
+    if not url or len(url) > 2048:
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": "URL is required (max 2048 chars)"}),
+                )
+            ],
+            isError=True,
+        )
+
+    url_ok, url_reason = validate_url(url)
+    if not url_ok:
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": f"URL blocked: {url_reason}"}),
+                )
+            ],
+            isError=True,
+        )
+
+    loop = asyncio.get_running_loop()
+
+    def do_retrieve():
+        scraper = PooledSmartScraper()
+        force_method = None if allow_javascript else "static"
+        scraped = scraper.scrape_to_dict(url, force_method=force_method)
+        payload = _build_retrieve_payload(url, scraped)
+        payload["usage_hint"] = {
+            "recommended_action": (
+                "extract_answer_or_cite"
+                if payload["classification"]["status"] == "usable"
+                else "choose_another_source"
+            ),
+            "search_loop_guard": "If classification.status is not usable, move to another source instead of retrying the same URL.",
+        }
+        return payload
+
+    try:
+        result = await loop.run_in_executor(None, do_retrieve)
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(result, indent=2))]
+        )
+    except Exception as e:
+        import sys
+
+        print(f"[justscrape] retrieve_source error for {url}: {e}", file=sys.stderr)
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": "Retrieval failed. Check server logs for details.",
+                            "url": url,
+                        },
+                        indent=2,
+                    ),
+                )
+            ],
+            isError=True,
+        )
+
+
+async def handle_research_with_sources(arguments: dict) -> CallToolResult:
+    """Handle refined research_with_sources contract for clients like LM Studio."""
+    query = arguments.get("query", "")
+    if not isinstance(query, str):
+        query = str(query) if query is not None else ""
+
+    try:
+        limit = int(arguments.get("limit", arguments.get("num_results", 5)))
+    except (TypeError, ValueError):
+        limit = 5
+    limit = max(1, min(limit, 10))
+
+    allow_javascript = _normalize_bool(arguments.get("allow_javascript"), True)
+
+    try:
+        max_content_length = int(arguments.get("max_content_length", 5000))
+    except (TypeError, ValueError):
+        max_content_length = 5000
+    max_content_length = max(100, min(max_content_length, 100000))
+
+    if not query or len(query) > 1000:
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": "Query is required (max 1000 chars)"}),
+                )
+            ],
+            isError=True,
+        )
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: research_with_sources_contract(
+            query=query,
+            limit=limit,
+            allow_javascript=allow_javascript,
+            max_content_length=max_content_length,
+        ),
+    )
+
+    metrics = result.get("metrics", {})
+    usable_count = metrics.get("usable_count", 0)
+    result["usage_hint"] = {
+        "recommended_action": (
+            "answer_from_sources" if usable_count > 0 else "inspect_failures_or_reformulate_once"
+        ),
+        "search_loop_guard": "Do not immediately repeat the same search with minor query rewrites. Check sources, failures, and skipped entries first.",
+    }
+
+    if result.get("search_error"):
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(result, indent=2))],
+            isError=True,
+        )
+
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(result, indent=2))]
+    )
 
 
 async def handle_web_search(arguments: dict) -> CallToolResult:
@@ -576,6 +939,13 @@ async def handle_web_search(arguments: dict) -> CallToolResult:
         ),
     )
 
+    result = dict(result)
+    result["usage_hint"] = {
+        "recommended_next_tool": "search_and_scrape",
+        "preferred_new_tool": "research_with_sources",
+        "search_loop_guard": "Search results are discovery-only. Avoid repeating web_search with minor query rewrites; inspect a candidate URL or switch to a research tool.",
+    }
+
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(result, indent=2))]
     )
@@ -623,9 +993,22 @@ async def handle_scrape_url(arguments: dict) -> CallToolResult:
 
     try:
         result = await loop.run_in_executor(None, do_scrape)
+        refined = _build_retrieve_payload(url, result)
         result["success"] = True
         result["content_length"] = len(result.get("content", "") or "")
         result["browser_pooled"] = _browser_pool.is_initialized()
+        result["signals"] = refined["signals"]
+        result["classification"] = refined["classification"]
+        if refined.get("warnings"):
+            result["warnings"] = refined["warnings"]
+        result["usage_hint"] = {
+            "recommended_action": (
+                "extract_answer_or_cite"
+                if refined["classification"]["status"] == "usable"
+                else "choose_another_source"
+            ),
+            "search_loop_guard": "If classification.status is not usable, pick another source instead of scraping similar pages repeatedly.",
+        }
 
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(result, indent=2))]
@@ -879,6 +1262,15 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
 
         if not enriched_results and skipped:
             response["note"] = "All search results were filtered (blocked domains or unscrapeable)"
+        response["usage_hint"] = {
+            "recommended_action": (
+                "answer_from_results"
+                if enriched_results
+                else "inspect_skipped_or_reformulate_once"
+            ),
+            "preferred_new_tool": "research_with_sources",
+            "search_loop_guard": "Avoid calling web_search again with minor query rewrites when results or skipped entries are already present.",
+        }
 
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(response, indent=2))]
@@ -991,6 +1383,15 @@ async def handle_search_and_scrape(arguments: dict) -> CallToolResult:
             "total_skipped": len(skipped),
             "search_time_ms": search_result.get("search_time_ms", 0),
             "search_cached": search_result.get("cached", False),
+            "usage_hint": {
+                "recommended_action": (
+                    "answer_from_results"
+                    if enriched_results
+                    else "inspect_skipped_or_reformulate_once"
+                ),
+                "preferred_new_tool": "research_with_sources",
+                "search_loop_guard": "Avoid calling web_search again with minor query rewrites when results or skipped entries are already present.",
+            },
         }
 
         return CallToolResult(

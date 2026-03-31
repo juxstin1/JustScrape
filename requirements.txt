@@ -4,6 +4,7 @@
 requests>=2.32.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.1
+lxml_html_clean>=0.4.2
 
 # Async HTTP/2 scraping (Phase 4)
 httpx[http2]>=0.27.0

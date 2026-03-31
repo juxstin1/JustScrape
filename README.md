@@ -40,7 +40,7 @@ Or configure **all your AI tools at once** with [add-mcp](https://github.com/neo
 npx add-mcp "uvx justscrape" -g -y --all
 ```
 
-That's it. Your AI can now call `search_and_scrape` and get answers from the web.
+That's it. Your AI can now call `research_with_sources` as the default research tool, with `search_and_scrape` still available as the legacy alias.
 
 ## Works Everywhere
 
@@ -64,6 +64,8 @@ Config file locations:
 - **Cursor:** `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project)
 - **VS Code:** `.vscode/mcp.json` (project)
 - **LM Studio:** Edit `mcp.json` in Settings > MCP
+
+Restart LM Studio after upgrading JustScrape so it reloads the MCP tool list. During local development, use the checkout you updated, install it into a repo-local `.venv`, and verify the active runtime with `justscrape --version` before testing behavior changes.
 
 </details>
 
@@ -191,11 +193,16 @@ Your AI asks "what's the difference between `dict.get()` and `dict[]` in Python?
 
 | Tool | What It Does |
 |------|-------------|
+| `research_with_sources` | Recommended default for question answering: search, retrieve, classify, and separate usable sources from failures |
+| `retrieve_source` | Retrieve one URL with explicit classification (`usable`, `thin`, `blocked`, `encoding-failure`, `empty`) |
+| `search_sources` | Search-only discovery tool that should usually be followed by retrieval, not more search loops |
 | `search_and_scrape` | Full pipeline — search, rerank, scrape, extract, score, dedup |
 | `web_search` | Search results only, no scraping |
 | `scrape_url` | Scrape a single URL to clean text |
 | `extract_urls` | Pull all links from a page |
 | `get_stats` | Cache and browser pool status |
+
+Legacy clients can keep using `web_search`, `scrape_url`, and `search_and_scrape`, but the refined tools above are what new MCP clients should prefer.
 
 ## Upgrade Search Quality (Optional)
 

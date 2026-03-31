@@ -396,6 +396,13 @@ KNOWN_BLOCKED_DOMAINS = {
     'facebook.com', 'www.facebook.com', 'instagram.com', 'www.instagram.com',
 }
 
+# Domains that are searchable but currently poor retrieval targets without a
+# dedicated transcript/content adapter. Skip them in automated research flows.
+UNSUPPORTED_RESEARCH_DOMAINS = {
+    'youtube.com',
+    'youtu.be',
+}
+
 # URL path patterns that are rarely useful content
 SKIP_PATH_PATTERNS = ['/login', '/signup', '/register', '/terms', '/privacy',
                       '/cookie', '/tos', '/legal', '/auth', '/account/']
@@ -436,6 +443,11 @@ def should_scrape(url: str, snippet: str = "") -> Tuple[bool, str]:
             or domain in {'superuser.com', 'serverfault.com', 'askubuntu.com', 'mathoverflow.net'}
         ):
             return True, "adapter:stackexchange_api"
+
+        if domain in UNSUPPORTED_RESEARCH_DOMAINS or any(
+            domain.endswith('.' + d) for d in UNSUPPORTED_RESEARCH_DOMAINS
+        ):
+            return False, "unsupported_source:youtube_watch"
 
         # Skip known-blocked domains (exact match or subdomain match)
         if domain in KNOWN_BLOCKED_DOMAINS or any(domain.endswith('.' + d) for d in KNOWN_BLOCKED_DOMAINS):
