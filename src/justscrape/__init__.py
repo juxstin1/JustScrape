@@ -1,6 +1,6 @@
 """JustScrape — God-status web search MCP server for AI."""
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 
 def main():
