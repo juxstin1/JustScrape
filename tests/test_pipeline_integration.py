@@ -363,17 +363,18 @@ class TestRefinedToolContract:
             "scrape_method": "javascript_pooled",
         }
 
-        with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
-            mock_scraper = MagicMock()
-            mock_scraper.scrape_to_dict.return_value = mock_scraped
-            mock_scraper_class.return_value = mock_scraper
+        with patch("justscrape.server.validate_url", return_value=(True, "ok")):
+            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+                mock_scraper = MagicMock()
+                mock_scraper.scrape_to_dict.return_value = mock_scraped
+                mock_scraper_class.return_value = mock_scraper
 
-            result = await handle_retrieve_source(
-                {
-                    "url": "https://www.youtube.com/watch?v=abc123",
-                    "allow_javascript": True,
-                }
-            )
+                result = await handle_retrieve_source(
+                    {
+                        "url": "https://www.youtube.com/watch?v=abc123",
+                        "allow_javascript": True,
+                    }
+                )
 
         response = json.loads(result.content[0].text)
         assert response["signals"]["method"] == "javascript"

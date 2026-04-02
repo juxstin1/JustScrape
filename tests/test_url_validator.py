@@ -1,17 +1,30 @@
 """Tests for centralized URL validation (SSRF protection)."""
 
+import socket
+from unittest.mock import patch
+
 import pytest
 from justscrape.url_validator import validate_url, is_safe_url, validate_url_or_raise
+
+
+# A mock getaddrinfo that returns a safe public IP for any hostname,
+# so tests aren't dependent on real DNS resolution.
+_SAFE_PUBLIC_IP = "93.184.216.34"  # example.com's real IP
+
+def _mock_getaddrinfo(host, port, *args, **kwargs):
+    return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_SAFE_PUBLIC_IP, port or 443))]
 
 
 class TestSchemeValidation:
     """Verify only http/https schemes are allowed."""
 
+    @patch("socket.getaddrinfo", _mock_getaddrinfo)
     def test_allows_http(self):
         ok, reason = validate_url("http://example.com")
         assert ok is True
         assert reason == "ok"
 
+    @patch("socket.getaddrinfo", _mock_getaddrinfo)
     def test_allows_https(self):
         ok, reason = validate_url("https://example.com/page")
         assert ok is True
@@ -140,14 +153,17 @@ class TestEdgeCases:
         ok, reason = validate_url("   ")
         assert ok is False
 
+    @patch("socket.getaddrinfo", _mock_getaddrinfo)
     def test_allows_url_with_path(self):
         ok, _ = validate_url("https://docs.python.org/3/library/urllib.html")
         assert ok is True
 
+    @patch("socket.getaddrinfo", _mock_getaddrinfo)
     def test_allows_url_with_port(self):
         ok, _ = validate_url("https://example.com:8443/api")
         assert ok is True
 
+    @patch("socket.getaddrinfo", _mock_getaddrinfo)
     def test_allows_url_with_query(self):
         ok, _ = validate_url("https://example.com/search?q=test&page=1")
         assert ok is True
@@ -156,6 +172,7 @@ class TestEdgeCases:
 class TestConvenienceFunctions:
     """Test helper functions."""
 
+    @patch("socket.getaddrinfo", _mock_getaddrinfo)
     def test_is_safe_url_true(self):
         assert is_safe_url("https://example.com") is True
 
@@ -165,6 +182,7 @@ class TestConvenienceFunctions:
     def test_is_safe_url_false_ip(self):
         assert is_safe_url("http://127.0.0.1") is False
 
+    @patch("socket.getaddrinfo", _mock_getaddrinfo)
     def test_validate_url_or_raise_safe(self):
         result = validate_url_or_raise("https://example.com")
         assert result == "https://example.com"

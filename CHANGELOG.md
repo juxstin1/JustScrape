@@ -4,6 +4,18 @@ All notable changes to JustScrape are documented here.
 
 ## [Unreleased]
 
+## [2.0.2] — 2026-04-02
+
+### Added
+- **Fast lane for simple queries** — queries classified as "general" or "lookup" (e.g. "pizza delivery near me", "weather in london") now skip the heavy quality pipeline (reranking, BM25/TF-IDF snippet extraction, quality scoring, dedup) and go straight to search + basic scrape. Complex queries (code, research, comparison, how-to, news) still use the full six-stage pipeline. Responses include `fast_lane: true` so callers can observe which path ran.
+
+### Fixed
+- **16 tests failing in sandboxed/CI environments** — all failures were caused by tests assuming real DNS resolution for hostnames like `example.com`. In environments without network access (Docker, CI, sandboxes), `socket.getaddrinfo` fails and the SSRF validator rejects all test URLs. Fixed by mocking DNS resolution and URL validation where tests need valid URLs to pass through to the logic under test.
+- **JS fallback test mocking wrong module path** — `test_scrape_falls_back_to_javascript_when_static_is_thin` mocked `sys.modules["js_scraper"]` but the actual import is `justscrape.js_scraper` (relative). Also updated to match the current `scrape()` code path which calls `fetch()` + manual extraction instead of `static_scraper.scrape()`.
+
+### Infrastructure
+- **235 tests passing** across 17 test files (up from 219/235)
+
 ## [2.0.1] — 2026-03-30
 
 ### Added

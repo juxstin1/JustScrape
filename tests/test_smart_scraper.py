@@ -1,8 +1,15 @@
 import sys
 import types
+from unittest.mock import patch
 
 from justscrape.smart_scraper import SmartScraper
 from justscrape.web_scraper import ContentType, ScrapedContent
+
+
+# Mock URL validation so tests work without DNS resolution
+_bypass_url_validation = patch(
+    "justscrape.smart_scraper._validate_url", lambda url: (True, "ok")
+)
 
 
 def test_is_js_heavy_site_detects_known_domains():
@@ -28,21 +35,18 @@ def test_needs_javascript_detects_signals():
     )
 
 
+@_bypass_url_validation
 def test_scrape_falls_back_to_javascript_when_static_is_thin(monkeypatch):
     scraper = SmartScraper(min_content_length=200)
 
-    static_result = ScrapedContent(
-        url="https://example.com",
-        title="Static",
-        content="too short",
-        status_code=200,
-    )
-
-    monkeypatch.setattr(scraper.static_scraper, "scrape", lambda url, content_types: static_result)
+    # The scrape() method calls static_scraper.fetch() for raw HTML,
+    # then checks _needs_javascript(). Provide thin HTML with a JS signal
+    # so the fallback triggers.
+    thin_html = "<html><body><noscript>Please enable JavaScript to continue</noscript></body></html>"
     monkeypatch.setattr(
         scraper.static_scraper,
         "fetch",
-        lambda url: ("<html><noscript>enable javascript</noscript></html>", 200),
+        lambda url: (thin_html, 200),
     )
 
     class FakeJavaScriptScraper:
@@ -60,7 +64,10 @@ def test_scrape_falls_back_to_javascript_when_static_is_thin(monkeypatch):
                 status_code=200,
             )
 
-    monkeypatch.setitem(sys.modules, "js_scraper", types.SimpleNamespace(JavaScriptScraper=FakeJavaScriptScraper))
+    # Mock the entire js_scraper module in sys.modules (playwright isn't installed)
+    fake_module = types.ModuleType("justscrape.js_scraper")
+    fake_module.JavaScriptScraper = FakeJavaScriptScraper
+    monkeypatch.setitem(sys.modules, "justscrape.js_scraper", fake_module)
 
     result = scraper.scrape("https://example.com", [ContentType.CLEAN_TEXT, ContentType.METADATA])
 
@@ -68,6 +75,7 @@ def test_scrape_falls_back_to_javascript_when_static_is_thin(monkeypatch):
     assert result.content == "rendered content from javascript"
 
 
+@_bypass_url_validation
 def test_reddit_json_adapter_scrapes_without_browser(monkeypatch):
     scraper = SmartScraper()
 
@@ -110,6 +118,7 @@ def test_reddit_json_adapter_scrapes_without_browser(monkeypatch):
     assert result.links and any("reddit.com" in link for link in result.links)
 
 
+@_bypass_url_validation
 def test_stackexchange_api_adapter_scrapes_without_browser(monkeypatch):
     scraper = SmartScraper()
 
@@ -169,6 +178,7 @@ def test_stackexchange_api_adapter_scrapes_without_browser(monkeypatch):
     assert result.links and any("stackoverflow.com" in link for link in result.links)
 
 
+@_bypass_url_validation
 def test_stackexchange_stackprinter_fallback_when_api_fails(monkeypatch):
     scraper = SmartScraper()
 
@@ -214,6 +224,7 @@ def test_stackexchange_stackprinter_fallback_when_api_fails(monkeypatch):
     assert result.links and any("stackoverflow.com/questions/11828270" in link for link in result.links)
 
 
+@_bypass_url_validation
 def test_devto_api_adapter_scrapes_without_browser(monkeypatch):
     scraper = SmartScraper()
 
@@ -249,6 +260,7 @@ def test_devto_api_adapter_scrapes_without_browser(monkeypatch):
     assert result.links and any("ffmpeg.org/documentation.html" in link for link in result.links)
 
 
+@_bypass_url_validation
 def test_github_discussions_html_adapter_scrapes_without_browser(monkeypatch):
     scraper = SmartScraper()
 

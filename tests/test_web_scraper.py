@@ -24,6 +24,7 @@ def test_head_pre_check_blocks_non_html_content():
 def test_fetch_respects_robots_disallow(monkeypatch):
     scraper = WebScraper(use_head_check=False, respect_robots=True)
     monkeypatch.setattr(web_scraper.RobotsCache, "can_fetch", lambda url: False)
+    monkeypatch.setattr("justscrape.url_validator.validate_url", lambda url: (True, None))
 
     html, status = scraper.fetch("https://example.com/private")
 
@@ -39,6 +40,7 @@ def test_fetch_does_not_get_when_head_check_fails(monkeypatch):
         lambda url, session, timeout: (False, {"status_code": 429}),
     )
     monkeypatch.setattr(scraper, "_rate_limit_wait", lambda url=None: None)
+    monkeypatch.setattr("justscrape.url_validator.validate_url", lambda url: (True, None))
 
     called = {"get": 0}
 
