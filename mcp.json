@@ -208,6 +208,85 @@
       }
     },
 
+    "search_and_scrape": {
+      "description": "Search + scrape in one call. Simple queries (general lookups, weather) use a fast lane that skips reranking, snippet extraction, quality scoring, and dedup. Complex queries (code, research, comparisons, how-to, news) use the full six-stage quality pipeline. Legacy alias: prefer research_with_sources for new integrations.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (max 1000 chars)"
+          },
+          "num_results": {
+            "type": "integer",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Number of results to return"
+          },
+          "max_content_length": {
+            "type": "integer",
+            "default": 5000,
+            "description": "Truncate content beyond this length"
+          },
+          "site": {
+            "type": ["string", "null"],
+            "description": "Restrict search to a specific domain"
+          },
+          "date_range": {
+            "type": ["string", "null"],
+            "description": "Restrict search to a date range"
+          }
+        },
+        "required": ["query"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "query": { "type": "string" },
+          "fast_lane": {
+            "type": "boolean",
+            "description": "True when the query was routed to the lightweight fast lane (general/lookup intent, no entities). Absent or false for full pipeline."
+          },
+          "query_intent": {
+            "type": "string",
+            "description": "Classified intent (code, research, news, how-to, lookup, comparison, general). Present only on fast lane responses."
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": { "type": "integer" },
+                "title": { "type": ["string", "null"] },
+                "url": { "type": "string", "format": "uri" },
+                "content": { "type": ["string", "null"] },
+                "best_sentence": { "type": ["string", "null"] },
+                "content_length": { "type": "integer" },
+                "relevance_score": { "type": "number" },
+                "score_breakdown": {
+                  "type": "object",
+                  "description": "Full pipeline only. Absent on fast lane results."
+                },
+                "source_type": { "type": "string" },
+                "detected_date": { "type": ["string", "null"] },
+                "confidence": { "type": "number" },
+                "scraped_successfully": { "type": "boolean" },
+                "fast_lane": { "type": "boolean", "description": "Per-result fast lane indicator" }
+              }
+            }
+          },
+          "skipped": { "type": "array", "description": "URLs filtered before scraping (blocked domains, etc.)" },
+          "total_results": { "type": "integer" },
+          "total_skipped": { "type": "integer" },
+          "search_time_ms": { "type": "integer" },
+          "search_cached": { "type": "boolean" }
+        },
+        "required": ["success", "query", "results"]
+      }
+    },
+
     "extract_urls": {
       "description": "Extract links from a page. No content classification.",
       "input": {

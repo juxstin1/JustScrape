@@ -165,6 +165,15 @@ Your AI asks "what's the difference between `dict.get()` and `dict[]` in Python?
 
 **Result:** 3 scored results, ~1,000 tokens of precisely targeted content instead of ~5,000+ tokens of raw page dumps.
 
+### Fast Lane (v2.0.2+)
+
+Not every query needs the full treatment. Simple queries like "pizza delivery near me" or "weather in london" skip the heavy pipeline entirely:
+
+- **Fast lane** (general/lookup intent, no entities): search + basic scrape + simple relevance sort. No reranking, no BM25, no dedup.
+- **Full pipeline** (code, research, comparison, how-to, news): all six stages above.
+
+The QueryAnalyzer decides which path to use automatically. Responses include `"fast_lane": true` so you can see which path ran.
+
 ```json
 {
   "query": "python dict.get() vs [] KeyError",
@@ -196,7 +205,7 @@ Your AI asks "what's the difference between `dict.get()` and `dict[]` in Python?
 | `research_with_sources` | Recommended default for question answering: search, retrieve, classify, and separate usable sources from failures |
 | `retrieve_source` | Retrieve one URL with explicit classification (`usable`, `thin`, `blocked`, `encoding-failure`, `empty`) |
 | `search_sources` | Search-only discovery tool that should usually be followed by retrieval, not more search loops |
-| `search_and_scrape` | Full pipeline — search, rerank, scrape, extract, score, dedup |
+| `search_and_scrape` | Full pipeline for complex queries; fast lane for simple ones (auto-routed) |
 | `web_search` | Search results only, no scraping |
 | `scrape_url` | Scrape a single URL to clean text |
 | `extract_urls` | Pull all links from a page |

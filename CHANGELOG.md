@@ -14,7 +14,7 @@ All notable changes to JustScrape are documented here.
 - **JS fallback test mocking wrong module path** — `test_scrape_falls_back_to_javascript_when_static_is_thin` mocked `sys.modules["js_scraper"]` but the actual import is `justscrape.js_scraper` (relative). Also updated to match the current `scrape()` code path which calls `fetch()` + manual extraction instead of `static_scraper.scrape()`.
 
 ### Infrastructure
-- **235 tests passing** across 17 test files (up from 219/235)
+- **235 tests passing** across 16 test files (up from 219/235)
 
 ## [2.0.1] — 2026-03-30
 
