@@ -8,14 +8,8 @@ import asyncio
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from ..config import MAX_CONCURRENT_SCRAPES, YOUTUBE_DOMAINS
 from ..worker import classify_content as classify_retrieved_content
-
-
-# YouTube domains used for video page warnings
-YOUTUBE_DOMAINS = {"youtube.com", "youtu.be"}
-
-# Global concurrency limit for outbound scrape requests (prevents DDoS amplification)
-MAX_CONCURRENT_SCRAPES = 5
 _scrape_semaphore = None  # Initialized lazily in async context
 
 

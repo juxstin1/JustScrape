@@ -18,6 +18,8 @@ from datetime import datetime
 
 from dateutil import parser as dateutil_parser
 
+from .config import RERANKER_BLOCKED_DOMAINS as BLOCKED_DOMAINS
+
 
 # ---------------------------------------------------------------------------
 # Authority tier maps (per D-07 / D-08)
@@ -69,18 +71,6 @@ AUTHORITY_TIERS: dict[str, dict[str, float]] = {
         "dev.to": 0.3,
     },
     "general": {},  # Fallback — all unknown domains get 0.5
-}
-
-# Domains that are always blocked (SEO farms, paywalls, login-gated).
-# Blocked domains score 0.0 and is_blocked=True per D-10.
-BLOCKED_DOMAINS: set[str] = {
-    "answers.com",
-    "ask.com",
-    "ehow.com",
-    "brighthub.com",
-    "quora.com",     # Often paywalled / login-gated
-    "pinterest.com", # Image-only, no useful text
-    "scribd.com",    # Paywall
 }
 
 # Query intents that receive freshness scoring (D-09).

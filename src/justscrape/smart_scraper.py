@@ -17,7 +17,8 @@ from urllib.parse import urlparse
 from .url_validator import validate_url as _validate_url
 from .adapters import get_adapter
 # Re-export _safe_get so existing callers / test patches keep working.
-from .adapters.base import _safe_get, MAX_ADAPTER_RESPONSE_SIZE  # noqa: F401
+from .adapters.base import _safe_get  # noqa: F401
+from .config import JS_HEAVY_DOMAINS, MAX_ADAPTER_RESPONSE_SIZE, MIN_CONTENT_LENGTH  # noqa: F401
 import re
 
 # NOTE: js_scraper is imported lazily inside methods that need it
@@ -30,11 +31,7 @@ class SmartScraper:
     """
 
     # Domains known to be JS-heavy (always use browser)
-    JS_HEAVY_DOMAINS = {
-        'twitter.com', 'x.com', 'reddit.com', 'youtube.com',
-        'instagram.com', 'facebook.com', 'linkedin.com',
-        'medium.com', 'substack.com', 'discord.com'
-    }
+    JS_HEAVY_DOMAINS = JS_HEAVY_DOMAINS
 
     # Patterns that indicate JS is needed
     JS_NEEDED_PATTERNS = re.compile(
@@ -46,7 +43,7 @@ class SmartScraper:
 
     def __init__(
         self,
-        min_content_length: int = 200,
+        min_content_length: int = MIN_CONTENT_LENGTH,
         force_js: bool = False
     ):
         self.min_content_length = min_content_length

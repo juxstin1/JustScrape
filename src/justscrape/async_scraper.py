@@ -26,16 +26,17 @@ except ImportError:
     HTTPX_AVAILABLE = False
 
 from bs4 import BeautifulSoup
+from .config import ASYNC_GLOBAL_SEMAPHORE_LIMIT, ASYNC_MAX_PER_DOMAIN, ASYNC_MAX_DOMAIN_SEMAPHORES
 from .web_scraper import ScrapedContent, ContentType
 
 
 # Per-domain concurrency semaphores
 _domain_semaphores: Dict[str, asyncio.Semaphore] = {}
-_MAX_DOMAIN_SEMAPHORES = 500
-_global_semaphore = asyncio.Semaphore(10)  # max 10 concurrent requests total
+_MAX_DOMAIN_SEMAPHORES = ASYNC_MAX_DOMAIN_SEMAPHORES  # backward-compat alias
+_global_semaphore = asyncio.Semaphore(ASYNC_GLOBAL_SEMAPHORE_LIMIT)
 
 
-def _get_domain_semaphore(url: str, max_per_domain: int = 2) -> asyncio.Semaphore:
+def _get_domain_semaphore(url: str, max_per_domain: int = ASYNC_MAX_PER_DOMAIN) -> asyncio.Semaphore:
     """Get or create a per-domain concurrency limiter."""
     domain = urlparse(url).netloc.lower()
     if domain not in _domain_semaphores:

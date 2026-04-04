@@ -22,33 +22,7 @@ def _restrict_file_permissions(path):
             pass
 
 
-# Maximum number of discovered URLs to store (prevents unbounded growth)
-MAX_DISCOVERED_URLS = 100000
-
-# Junk URL patterns to filter out (ads, trackers, social widgets)
-JUNK_PATTERNS = [
-    'doubleclick.net',
-    'googlesyndication.com',
-    'googleadservices.com',
-    'facebook.com/plugins',
-    'facebook.com/sharer',
-    'twitter.com/widgets',
-    'twitter.com/intent',
-    'linkedin.com/share',
-    'pinterest.com/pin',
-    '/ads/',
-    '/ad/',
-    '/banner/',
-    '/tracker/',
-    '/track/',
-    'analytics',
-    'pixel',
-    '/feed/',
-    '/rss/',
-    'mailto:',
-    'javascript:',
-    'tel:',
-]
+from .config import MAX_DISCOVERED_URLS, JUNK_PATTERNS
 
 
 class URLDiscovery:

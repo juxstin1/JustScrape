@@ -25,6 +25,16 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, asdict, field
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 
+from .config import (
+    SEARCH_CACHE_TTL,
+    SEARCH_CACHE_MAX_SIZE,
+    PERSISTENT_CACHE_TTL,
+    KNOWN_BLOCKED_DOMAINS,
+    UNSUPPORTED_RESEARCH_DOMAINS,
+    SKIP_PATH_PATTERNS,
+    RATE_LIMITER_MAX_DOMAINS,
+)
+
 
 def _restrict_file_permissions(path: str):
     """Restrict file to owner-only read/write on Unix systems."""

@@ -25,9 +25,7 @@ from .url_validator import validate_url as _validate_url
 import os
 import stat
 
-# Safety limits for sitemap processing
-MAX_CHILD_SITEMAPS = 100
-MAX_SITEMAP_SIZE = 50 * 1024 * 1024  # 50 MB
+from .config import MAX_CHILD_SITEMAPS, MAX_SITEMAP_SIZE
 
 
 def _restrict_file_permissions(path: str):
