@@ -10,15 +10,7 @@ import socket
 from urllib.parse import urlparse
 from typing import Tuple
 
-
-# Schemes allowed for outbound requests
-ALLOWED_SCHEMES = {'http', 'https'}
-
-# Known metadata endpoints to block even if DNS resolves to public IP
-BLOCKED_HOSTNAMES = {
-    'metadata.google.internal',
-    'metadata.goog',
-}
+from .config import ALLOWED_SCHEMES, BLOCKED_HOSTNAMES
 
 
 def validate_url(url: str) -> Tuple[bool, str]:

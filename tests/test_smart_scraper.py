@@ -104,7 +104,7 @@ def test_reddit_json_adapter_scrapes_without_browser(monkeypatch):
                 },
             }
 
-    monkeypatch.setattr("justscrape.smart_scraper._safe_get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("justscrape.adapters.base._safe_get", lambda *args, **kwargs: FakeResponse())
 
     result = scraper.scrape(
         "https://www.reddit.com/r/Python/",
@@ -162,7 +162,7 @@ def test_stackexchange_api_adapter_scrapes_without_browser(monkeypatch):
             },
         )
 
-    monkeypatch.setattr("justscrape.smart_scraper._safe_get", fake_get)
+    monkeypatch.setattr("justscrape.adapters.base._safe_get", fake_get)
 
     result = scraper.scrape(
         "https://stackoverflow.com/questions/1186880/how-to-run-ffmpeg-from-python",
@@ -210,7 +210,7 @@ def test_stackexchange_stackprinter_fallback_when_api_fails(monkeypatch):
             return FakeResponse(200, text=html)
         return None  # _safe_get returns None for 404
 
-    monkeypatch.setattr("justscrape.smart_scraper._safe_get", fake_get)
+    monkeypatch.setattr("justscrape.adapters.base._safe_get", fake_get)
 
     result = scraper.scrape(
         "https://stackoverflow.com/questions/11828270/how-do-i-exit-the-vim-editor",
@@ -245,7 +245,7 @@ def test_devto_api_adapter_scrapes_without_browser(monkeypatch):
                 "user": {"name": "Alice", "username": "alice"},
             }
 
-    monkeypatch.setattr("justscrape.smart_scraper._safe_get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("justscrape.adapters.base._safe_get", lambda *args, **kwargs: FakeResponse())
 
     result = scraper.scrape(
         "https://dev.to/alice/ffmpeg-tips-1234",
@@ -282,7 +282,7 @@ def test_github_discussions_html_adapter_scrapes_without_browser(monkeypatch):
         </html>
         """
 
-    monkeypatch.setattr("justscrape.smart_scraper._safe_get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("justscrape.adapters.base._safe_get", lambda *args, **kwargs: FakeResponse())
 
     result = scraper.scrape(
         "https://github.com/org/repo/discussions/42",

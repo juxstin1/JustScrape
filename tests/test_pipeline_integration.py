@@ -59,8 +59,8 @@ class TestPipelineIntegration:
             "title": "Exceptions — Python Documentation",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -106,8 +106,8 @@ class TestPipelineIntegration:
             "title": "Asynchronous JavaScript — MDN",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -162,8 +162,8 @@ class TestPipelineIntegration:
             "title": "Ownership",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -207,8 +207,8 @@ class TestPipelineIntegration:
             "title": "Deployments",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -235,7 +235,7 @@ class TestPipelineIntegration:
 
         # Force QueryAnalyzer to raise exception
         with patch(
-            "justscrape.server._query_analyzer.analyze",
+            "justscrape.handlers.research._query_analyzer.analyze",
             side_effect=Exception("Analyzer failed"),
         ):
             # Mock old-path search_full
@@ -255,8 +255,8 @@ class TestPipelineIntegration:
 
             mock_scraped = {"content": "Fallback content", "title": "Test"}
 
-            with patch("justscrape.server.search_full", return_value=mock_search_result):
-                with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+            with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+                with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                     mock_scraper = MagicMock()
                     mock_scraper.scrape_to_dict.return_value = mock_scraped
                     mock_scraper_class.return_value = mock_scraper
@@ -301,8 +301,8 @@ class TestPipelineIntegration:
 
         mock_scraped = {"content": "Python docs content", "title": "Python"}
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -345,7 +345,7 @@ class TestRefinedToolContract:
             "cached": False,
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
+        with patch("justscrape.handlers.search.search_full", return_value=mock_search_result):
             result = await handle_search_sources({"query": "python scraping"})
 
         response = json.loads(result.content[0].text)
@@ -363,8 +363,8 @@ class TestRefinedToolContract:
             "scrape_method": "javascript_pooled",
         }
 
-        with patch("justscrape.server.validate_url", return_value=(True, "ok")):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.scrape.validate_url", return_value=(True, "ok")):
+            with patch("justscrape.handlers.scrape.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -408,7 +408,7 @@ class TestRefinedToolContract:
         }
 
         with patch(
-            "justscrape.server.research_with_sources_contract",
+            "justscrape.handlers.research.research_with_sources_contract",
             return_value=mock_result,
         ):
             result = await handle_research_with_sources({"query": "python scraping"})

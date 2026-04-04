@@ -153,8 +153,8 @@ class TestFastLaneIntegration:
             "title": "Best Pizza Delivery Near Me - Yelp",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -196,8 +196,8 @@ class TestFastLaneIntegration:
             "title": "Exceptions — Python Documentation",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
                 mock_scraper = MagicMock()
                 mock_scraper.scrape_to_dict.return_value = mock_scraped
                 mock_scraper_class.return_value = mock_scraper
@@ -237,9 +237,9 @@ class TestFastLaneIntegration:
             "title": "London Weather",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
-                with patch("justscrape.server._result_reranker") as mock_reranker:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
+                with patch("justscrape.handlers.research._result_reranker") as mock_reranker:
                     mock_scraper = MagicMock()
                     mock_scraper.scrape_to_dict.return_value = mock_scraped
                     mock_scraper_class.return_value = mock_scraper
@@ -273,9 +273,9 @@ class TestFastLaneIntegration:
             "title": "AAPL Stock Price",
         }
 
-        with patch("justscrape.server.search_full", return_value=mock_search_result):
-            with patch("justscrape.server.PooledSmartScraper") as mock_scraper_class:
-                with patch("justscrape.server._snippet_extractor") as mock_extractor:
+        with patch("justscrape.handlers.research.search_full", return_value=mock_search_result):
+            with patch("justscrape.handlers.research.PooledSmartScraper") as mock_scraper_class:
+                with patch("justscrape.handlers.research._snippet_extractor") as mock_extractor:
                     mock_scraper = MagicMock()
                     mock_scraper.scrape_to_dict.return_value = mock_scraped
                     mock_scraper_class.return_value = mock_scraper

@@ -29,8 +29,7 @@ _HEADING_PATTERN = re.compile(r'^#{1,6}\s+.+$', re.MULTILINE)
 _CODE_FENCE_PATTERN = re.compile(r'```[\s\S]*?```', re.MULTILINE)
 _INDENTED_CODE_PATTERN = re.compile(r'(?:(?:^(?:    |\t).+\n?){2,})', re.MULTILINE)
 
-# Character threshold for splitting large heading sections into paragraphs
-CHUNK_SIZE_THRESHOLD = 800
+from .config import CHUNK_SIZE_THRESHOLD
 
 
 # ---------------------------------------------------------------------------

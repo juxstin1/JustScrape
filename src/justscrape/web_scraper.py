@@ -20,6 +20,14 @@ import re
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 
+from .config import (
+    MAX_RESPONSE_SIZE,
+    MAX_HEAD_CHECK_SIZE,
+    ROBOTS_CACHE_MAX_SIZE,
+    ROBOTS_CACHE_TTL,
+    SCRAPER_DOMAIN_LIMITER_MAX_DOMAINS,
+)
+
 
 class ContentType(Enum):
     """Types of content extraction"""
@@ -60,7 +68,7 @@ class RobotsCache:
     _cache: Dict[str, RobotFileParser] = {}
     _lock = threading.Lock()
     _user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-    _MAX_SIZE = 500
+    _MAX_SIZE = ROBOTS_CACHE_MAX_SIZE
 
     @classmethod
     def can_fetch(cls, url: str) -> bool:
@@ -74,8 +82,8 @@ class RobotsCache:
                     entry = cls._cache[domain]
                     rp = entry[0] if entry else None
                     ts = entry[1] if entry else 0
-                    # TTL: re-fetch after 24 hours
-                    if time.time() - ts < 86400:
+                    # TTL: re-fetch after configured interval
+                    if time.time() - ts < ROBOTS_CACHE_TTL:
                         if rp is None:
                             return True
                         return rp.can_fetch(cls._user_agent, url)
@@ -164,7 +172,7 @@ def head_pre_check(url: str, session: requests.Session = None, timeout: int = 5)
         if info["content_length"]:
             try:
                 size = int(info["content_length"])
-                if size > 5 * 1024 * 1024:
+                if size > MAX_HEAD_CHECK_SIZE:
                     return False, {**info, "reason": f"too_large:{size}"}
             except ValueError:
                 pass
@@ -187,7 +195,7 @@ def head_pre_check(url: str, session: requests.Session = None, timeout: int = 5)
 
 class _ScraperDomainLimiter:
     """Per-domain rate limiting for the web scraper."""
-    _MAX_DOMAINS = 1000
+    _MAX_DOMAINS = SCRAPER_DOMAIN_LIMITER_MAX_DOMAINS
 
     def __init__(self, default_delay: float = 1.0):
         self.default_delay = default_delay
@@ -275,14 +283,13 @@ class WebScraper:
         self._rate_limit_wait(url)
 
         try:
-            _MAX_RESPONSE_SIZE = 10 * 1024 * 1024  # 10MB
             response = self.session.get(url, timeout=self.timeout, stream=True)
             chunks = []
             total = 0
             for chunk in response.iter_content(chunk_size=65536, decode_unicode=True):
                 if chunk:
                     total += len(chunk)
-                    if total > _MAX_RESPONSE_SIZE:
+                    if total > MAX_RESPONSE_SIZE:
                         break
                     chunks.append(chunk)
             return "".join(chunks), response.status_code

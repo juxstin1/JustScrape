@@ -42,8 +42,8 @@ def get_smart_scraper():
     global _smart_scraper
     if _smart_scraper is None:
         try:
-            from .smart_scraper import SmartScraper
-            _smart_scraper = SmartScraper()
+            from .browser_pool import PooledSmartScraper
+            _smart_scraper = PooledSmartScraper()
         except ImportError:
             _smart_scraper = "static_only"
     return _smart_scraper
@@ -482,7 +482,7 @@ def main():
     send({
         "ok": True,
         "status": "ready",
-        "version": "2.0.2",
+        "version": "2.0.4",
         "tools": list(TOOLS.keys())
     })
 
