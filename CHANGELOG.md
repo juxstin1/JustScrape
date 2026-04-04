@@ -4,6 +4,20 @@ All notable changes to JustScrape are documented here.
 
 ## [Unreleased]
 
+## [2.0.4] — 2026-04-04
+
+### Refactored
+- **Split server.py into handlers/** — `server.py` reduced from 1,682 to 337 lines. All 8 MCP tool handlers extracted into `handlers/research.py`, `handlers/scrape.py`, `handlers/search.py`, `handlers/stats.py` with shared utilities in `handlers/_shared.py`. Server is now thin registration + dispatch only.
+- **Extracted SmartScraper adapters into adapters/** — `smart_scraper.py` reduced from 1,197 to 521 lines. Reddit, StackExchange, dev.to, and GitHub Discussions adapters extracted into standalone modules with a `SourceAdapter` ABC interface. New `get_adapter(url)` router for clean dispatch.
+- **Extracted browser pool** — `LazyBrowserPool` and `PooledSmartScraper` moved from server.py into `browser_pool.py` (251 lines).
+- **Centralized config constants** — all tunable thresholds, domain lists, cache TTLs, size limits, and concurrency settings consolidated into `config.py` (112 lines). 12 modules now import from config instead of defining constants inline.
+- **Unified scraper instantiation** — `worker.py` now uses `PooledSmartScraper` from `browser_pool` instead of maintaining a separate `SmartScraper` lazy loader.
+
+### Infrastructure
+- Net reduction of ~1,350 lines from god files while adding ~1,250 lines of clean, modular replacements
+- Backward-compatible re-exports in `server.py` for existing import paths
+- 235 tests passing across 16 test files
+
 ## [2.0.2] — 2026-04-02
 
 ### Added
