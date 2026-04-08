@@ -77,3 +77,4 @@ htmlcov/
 test_worker.py
 test_output.txt
 nul
+.scratch/ephemeral.log
