@@ -811,8 +811,11 @@ class WebSearch:
         start_time: float,
         date_range: str = None,
     ) -> SearchResponse:
-        """Search using duckduckgo-search library"""
-        from duckduckgo_search import DDGS
+        """Search using ddgs library (duckduckgo-search fallback for old envs)"""
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
 
         results = []
 
@@ -823,10 +826,11 @@ class WebSearch:
             timelimit = timelimit_map.get(date_range)
 
         with DDGS() as ddgs:
-            kwargs = dict(keywords=query, region=region, max_results=num_results)
+            # query is positional: ddgs>=9 renamed the param keywords -> query
+            kwargs = dict(region=region, max_results=num_results)
             if timelimit:
                 kwargs["timelimit"] = timelimit
-            ddg_results = list(ddgs.text(**kwargs))
+            ddg_results = list(ddgs.text(query, **kwargs))
 
             for i, r in enumerate(ddg_results):
                 results.append(SearchResult(

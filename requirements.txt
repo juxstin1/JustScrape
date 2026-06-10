@@ -15,8 +15,8 @@ playwright>=1.40.0
 # MCP Server (Model Context Protocol)
 mcp>=1.0.0
 
-# Web search
-duckduckgo-search>=6.0.0
+# Web search (duckduckgo-search was renamed to ddgs; old package silently returns 0 results)
+ddgs>=9.0.0
 
 # CLI interface
 click>=8.1.0

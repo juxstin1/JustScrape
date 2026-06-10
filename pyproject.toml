@@ -40,7 +40,7 @@ dependencies = [
 [project.optional-dependencies]
 browser = ["playwright>=1.40.0"]
 cli = ["click>=8.1.0", "pyperclip>=1.8.0"]
-ddg = ["duckduckgo-search>=6.0.0"]
+ddg = ["ddgs>=9.0.0"]
 dev = ["pytest", "pytest-asyncio"]
 
 [project.scripts]
